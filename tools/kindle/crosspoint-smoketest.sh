@@ -21,15 +21,24 @@ LAUNCH_LOG=/mnt/us/crosspoint-smoketest-launch.log
         echo "FATAL: $BASE/smoketest is missing."
         exit 1
     fi
-    if [ ! -x "$BASE/smoketest" ]; then
-        echo "FATAL: $BASE/smoketest is not executable."
-        echo "       Either chmod +x it, or /mnt/us lost its exec mount."
-        echo "       mount says: $(mount | grep ' /mnt/us ')"
-        exit 1
-    fi
+    echo "mount: $(mount | grep ' /mnt/us ')"
 
-    "$BASE/smoketest"
-    status=$?
+    # /mnt/us is vfat, which stores no permission bits: whether a file looks
+    # executable is decided by the mount's fmask, not by the file. chmod may
+    # therefore be a no-op. If the direct exec is refused, invoking the dynamic
+    # loader explicitly runs the binary anyway, since the kernel is then asked
+    # to exec ld-linux (which does live on a real filesystem) rather than the
+    # file on the card.
+    chmod +x "$BASE/smoketest" 2>/dev/null
+
+    if [ -x "$BASE/smoketest" ]; then
+        "$BASE/smoketest"
+        status=$?
+    else
+        echo "not executable via the vfat mount; going through the loader"
+        /lib/ld-linux.so.3 "$BASE/smoketest"
+        status=$?
+    fi
     echo "--- smoketest exited: $status"
     if [ "$status" -ne 0 ]; then
         echo "    see /mnt/us/crosspoint-smoketest.log for why"

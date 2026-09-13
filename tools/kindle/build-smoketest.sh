@@ -38,7 +38,11 @@ echo "--- building smoketest"
     tools/kindle/smoketest.cpp \
     lib/hal/kindle/KindleGrayExpand.cpp \
     lib/hal/kindle/KindleFrameBuffer.cpp \
-    "$OUT/FBInk/Release/libfbink.a"
+    "$OUT/FBInk/Release/libfbink.a" \
+    -lrt
+    # -lrt is not optional here: this toolchain targets a glibc old enough
+    # (2.4-era, matching the device) that clock_gettime still lives in librt
+    # rather than having been folded into libc, which happened in 2.17.
 
 "$CROSS_TC-strip" "$OUT/smoketest"
 
