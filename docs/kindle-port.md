@@ -196,6 +196,22 @@ Done:
 - Host tests green: 5 for the 1bpp -> 8bpp expansion, 11 for String semantics.
 - On-device smoke test, its cross-build and its launch scriptlet
   (`tools/kindle/`).
+- Toolchain built and the smoke test cross-compiled. The output is
+  byte-identical in ABI to the device's own binaries: `e_flags 0x05000200`,
+  `/lib/ld-linux.so.3`, `for GNU/Linux 3.0.35`, the same triple of values read
+  off the stock `fbink`.
+- Binary and scriptlet installed on the device, awaiting one tap.
+
+Two things the first cross-compile turned up, both the target's age showing:
+
+- **`-lrt` is mandatory.** `clock_gettime` was only folded into libc in glibc
+  2.17, and this target predates that. Without it the link fails on a symbol
+  the header declares perfectly happily. `ArduinoCompat` needs it too, so this
+  is a standing requirement of the port.
+- **`chmod +x` on `/mnt/us` may do nothing.** It is vfat, which stores no
+  permission bits; the mount's `fmask` decides. The scriptlet falls back to
+  invoking `/lib/ld-linux.so.3` directly, which works because the kernel is
+  then asked to exec the loader rather than the file on the card.
 
 **Nothing in `lib/hal/kindle/` has run on the device yet.** The expansion is
 host-tested; everything that touches FBInk or `/dev/fb0` is unexercised. The
