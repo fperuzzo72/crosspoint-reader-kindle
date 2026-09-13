@@ -140,6 +140,50 @@ map cleanly onto the `displayStart()`/`displayFinish()` split the SDK's
 Unlike the SPI panels, the EPDC copies the frame out at submission time, so
 the caller may reuse its framebuffer as soon as `displayStart()` returns.
 
+## Arduino compatibility
+
+The app tree is written against the Arduino core, and the port keeps it that
+way. Rewriting 176 `String` call sites and 153 `millis()` ones to be
+platform-neutral would be a large, noisy diff across code this port otherwise
+never touches, and would fork the tree from upstream for nothing.
+
+`lib/hal/kindle/ArduinoCompat.h` is scoped by measuring what the tree actually
+uses, not by reimplementing the core:
+
+| Symbol | Sites |
+| --- | --- |
+| `String` | 176 (15 distinct methods) |
+| `millis` / `micros` | 162 |
+| `yield` | 55 |
+| `delay` | 46 |
+| `ESP.getFreeHeap` | 62 |
+| `ESP.getMaxAllocHeap` | 21 |
+| `ESP.restart` | 12 |
+
+FreeRTOS use is confined to six files (`HalMemory`, `HalPowerManager`,
+`HalStorage`, `ActivityManager`, `UsbSerialJtagHandoff`) and is handled with
+those, not here.
+
+Anything outside the measured set is deliberately absent: a missing symbol is
+a compile error that points at the real call site, which is what you want. A
+stub that silently does the wrong thing at runtime is not.
+
+`String` lives in its own translation unit (`ArduinoString.cpp`) so its tests
+build on a Mac; timing and `ESP` need `<sys/sysinfo.h>` and `/proc`. The tests
+target the places Arduino diverges from `std::string` and where the obvious
+implementation would compile, read correctly and still be wrong:
+
+- `indexOf` returns `-1`, not `npos`.
+- `substring` clamps where `substr` throws, including inverted ranges.
+- `remove` tolerates out-of-range indices where `erase` throws.
+- `replace` advances past its own output instead of spinning.
+- `charAt` past the end is NUL, and `String(nullptr)` is empty.
+
+`ESP.restart()` re-execs the process. On the ESP32 restarting the firmware and
+rebooting the device are the same act; here they are not, and rebooting a
+Kindle to restart an app would be both wrong and slow.
+
+
 ## State
 
 Done:
@@ -148,7 +192,10 @@ Done:
 - Target ABI measured.
 - Cross-toolchain image defined (`docker/toolchain.Dockerfile`).
 - Display backend written (`lib/hal/kindle/`).
-- Host test for the 1bpp -> 8bpp expansion (`test/kindle_gray_expand/`).
+- Arduino compatibility shim written (`lib/hal/kindle/ArduinoCompat.h`).
+- Host tests green: 5 for the 1bpp -> 8bpp expansion, 11 for String semantics.
+- On-device smoke test, its cross-build and its launch scriptlet
+  (`tools/kindle/`).
 
 **Nothing in `lib/hal/kindle/` has run on the device yet.** The expansion is
 host-tested; everything that touches FBInk or `/dev/fb0` is unexercised. The
@@ -157,10 +204,15 @@ waveform mapping, which needs someone to tap a book on the home screen.
 
 Next, roughly in order:
 
-1. Cross-compile a standalone "paint one frame" binary and run it on device.
-2. Arduino compatibility shim (`String`, `millis()`, timing).
-3. `HalStorage` on POSIX, `HalClock` on `clock_gettime`, `HalSystem` on
+1. Run `tools/kindle/smoketest.cpp` on the device. It answers the open
+   questions in one tap: real panel geometry and rotation, whether 600x800 is
+   what the kernel reports, whether the waveform mapping looks right, and what
+   each refresh actually costs in milliseconds.
+2. `HalStorage` on POSIX, `HalClock` on `clock_gettime`, `HalSystem` on
    `sysinfo`.
-4. `HalGPIO` on evdev, mapping touch into `MappedInputManager`.
-5. Replace the `WiFi` surface (177 references) with sockets; the Kindle's own
+3. `HalGPIO` on evdev, mapping touch into `MappedInputManager`.
+4. Replace the `WiFi` surface (177 references) with sockets; the Kindle's own
    Wi-Fi is already up and managed by the system.
+5. A build system for the target. `platformio.ini` is ESP32-only, so the
+   Kindle build needs its own entry point, most likely CMake reusing the
+   existing host-test conventions.
