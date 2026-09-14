@@ -30,6 +30,11 @@ JOBS=$(nproc 2>/dev/null || echo 4)
 mkdir -p "$OUT"
 
 INC="-Ibuild/kindle/FBInk/libunibreak/src -Ibuild/kindle/thirdparty -Ibuild/kindle/FBInk"
+# Fetched libraries keep their upstream layout: headers live under src/.
+# tools/kindle/fetch-deps.sh puts them here at the versions platformio.ini pins.
+for d in build/kindle/thirdparty/*/src; do [ -d "$d" ] && INC="$INC -I$d"; done
+# tjpgd is already vendored in the SDK and only needed an include path.
+INC="$INC -Ifreeink-sdk/libs/book/FreeInkBook/third_party/tjpgd"
 INC="$INC -Ilib/hal/kindle/arduino-shim -include build/kindle/census-defines.h"
 for d in $(find freeink-sdk/libs -type d -name include); do INC="$INC -I$d"; done
 for d in lib/*/; do INC="$INC -I${d%/}"; done
@@ -76,7 +81,10 @@ chmod +x "$OUT/cc-one.sh"
 # so compiling it only yields objects referencing a bus that cannot exist here.
 # tools/ carries main_kindle.cpp, which supplies the main() the Arduino core
 # used to. Leaving the directory out is why `main` itself came back undefined.
-{ find src lib freeink-sdk/libs -name '*.cpp' 2>/dev/null; echo tools/kindle/main_kindle.cpp; } \
+{ find src lib freeink-sdk/libs -name '*.cpp' 2>/dev/null
+  find build/kindle/thirdparty/*/src -name '*.cpp' 2>/dev/null
+  echo tools/kindle/main_kindle.cpp
+} \
   | grep -vE '/test/|/tools/|FBInk' \
   | grep -vE 'FreeInkDisplay/src/' > "$OUT/sources.txt"
 # Every C source under lib/, not just the three obvious third-party trees:
@@ -93,6 +101,9 @@ chmod +x "$OUT/cc-one.sh"
 #   FBInk/libunibreak    only as a fallback; the SDK's copy wins if present
 { find lib -name '*.c' 2>/dev/null
   find freeink-sdk/libs -name '*.c' 2>/dev/null
+  # Fetched libraries: only their src/, never examples, tests or the desktop
+  # ports upstream ships alongside (those carry their own main()).
+  find build/kindle/thirdparty/*/src -name '*.c' 2>/dev/null
 } > "$OUT/csources.txt"
 
 echo "--- compiling ($(wc -l < "$OUT/sources.txt" | tr -d ' ') C++, $(wc -l < "$OUT/csources.txt" | tr -d ' ') C, -j$JOBS, incremental) ---"

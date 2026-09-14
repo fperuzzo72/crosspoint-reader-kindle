@@ -84,6 +84,22 @@ using word = uint16_t;
 #define pgm_read_dword(addr) (*reinterpret_cast<const uint32_t*>(addr))
 #define pgm_read_ptr(addr) (*reinterpret_cast<void* const*>(addr))
 
+// The _P string and memory family. On AVR these read from a separate program
+// address space; the ESP32 core already reduces them to the ordinary calls,
+// and so does this. PNGdec and JPEGDEC use memcpy_P heavily.
+#define memcpy_P memcpy
+#define memcmp_P memcmp
+#define strcpy_P strcpy
+#define strncpy_P strncpy
+#define strcmp_P strcmp
+#define strncmp_P strncmp
+#define strlen_P strlen
+#define strstr_P strstr
+#define sprintf_P sprintf
+#define snprintf_P snprintf
+#define PSTR(s) (s)
+#define F(s) (s)
+
 #ifndef min
 template <typename A, typename B>
 constexpr auto min(A a, B b) -> decltype(a < b ? a : b) {

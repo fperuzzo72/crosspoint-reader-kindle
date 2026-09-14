@@ -18,6 +18,8 @@ CROSS=arm-kindlepw2-linux-gnueabi-g++
 OUT=build/kindle
 
 INC="-I$OUT/FBInk/libunibreak/src -I$OUT/thirdparty -I$OUT/FBInk"
+for d in "$OUT"/thirdparty/*/src; do [ -d "$d" ] && INC="$INC -I$d"; done
+INC="$INC -Ifreeink-sdk/libs/book/FreeInkBook/third_party/tjpgd"
 INC="$INC -Ilib/hal/kindle/arduino-shim"
 for d in $(find freeink-sdk/libs -type d -name include); do INC="$INC -I$d"; done
 for d in lib/*/; do INC="$INC -I${d%/}"; done
