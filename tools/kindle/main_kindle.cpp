@@ -62,5 +62,16 @@ int main() {
   }
 
   std::fprintf(stderr, "[kindle] stop requested, leaving the loop\n");
-  return 0;
+
+  // _exit, not return: returning runs the static destructors, and this tree
+  // was written for a firmware that never shuts down. ~ActivityManager() has a
+  // deliberate assert(false) saying exactly that, and a clean stop was ending
+  // in SIGABRT because of it.
+  //
+  // Skipping the destructors is also the honest match for the model: on the
+  // ESP32 the process does not unwind, it stops existing. Nothing here owns a
+  // resource the kernel will not reclaim, and the display backend has already
+  // drained its pending waveform by the time the loop exits.
+  std::fflush(nullptr);
+  _exit(0);
 }
