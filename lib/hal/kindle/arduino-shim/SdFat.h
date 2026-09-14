@@ -25,6 +25,25 @@
 #include "Stream.h"
 #include "common/FsApiConstants.h"
 
+// Where "/" means, from the app's point of view.
+//
+// CrossPoint is written for a device whose storage root IS the filesystem
+// root: HalStorage::listFiles defaults to "/" and the browser starts there. On
+// a Kindle that is the real Linux root, which is why the file browser showed
+// the whole system.
+//
+// Every path entering this shim is resolved against this prefix, so the app
+// keeps thinking it holds a card while never seeing outside /mnt/us. Doing it
+// here rather than in the app keeps the diff off code this port does not own,
+// and covers every call site at once.
+namespace crosspoint_storage {
+const char* root();
+void setRoot(const char* path);
+// Prefixes `path` with the root unless it is already inside it. The returned
+// pointer is valid until the next call on this thread.
+const char* resolve(const char* path);
+}  // namespace crosspoint_storage
+
 class FsFile : public Stream {
  public:
   FsFile() = default;
@@ -98,7 +117,7 @@ class FsFile : public Stream {
 // they are all the same thing here, because the kernel already mounted it.
 class SdFs {
  private:
-  char volumePath[256] = "/mnt/us";
+  char volumePath[256] = "/mnt/us";  // kept in step with crosspoint_storage::root()
 
  public:
   // The ESP32 targets pass a bus config; there is no bus here. Accepting and

@@ -10,6 +10,42 @@
 
 #include "arduino-shim/SdFat.h"
 
+namespace crosspoint_storage {
+namespace {
+
+char g_root[256] = "/mnt/us";
+// Thread-local so two threads resolving at once cannot overwrite each other's
+// answer; the storage lock does not cover this shim.
+thread_local char g_resolved[1024];
+
+}  // namespace
+
+const char* root() { return g_root; }
+
+void setRoot(const char* path) {
+  if (path != nullptr && *path != '\0') {
+    std::snprintf(g_root, sizeof(g_root), "%s", path);
+  }
+}
+
+const char* resolve(const char* path) {
+  if (path == nullptr) {
+    return g_root;
+  }
+  const size_t rootLen = std::strlen(g_root);
+  // Already inside the root: openNext builds child paths from an
+  // already-resolved parent, so resolving has to be idempotent.
+  if (std::strncmp(path, g_root, rootLen) == 0 && (path[rootLen] == '\0' || path[rootLen] == '/')) {
+    return path;
+  }
+  // A relative path is relative to the root too, which is what the app means
+  // when it passes a bare filename.
+  std::snprintf(g_resolved, sizeof(g_resolved), "%s%s%s", g_root, path[0] == '/' ? "" : "/", path);
+  return g_resolved;
+}
+
+}  // namespace crosspoint_storage
+
 namespace {
 
 // Recursive mkdir, since SdFat's takes a createParents flag and callers use it.
@@ -66,18 +102,19 @@ bool FsFile::open(const char* p, const oflag_t flags) {
   if (p == nullptr) {
     return false;
   }
-  std::snprintf(path, sizeof(path), "%s", p);
+  const char* resolved = crosspoint_storage::resolve(p);
+  std::snprintf(path, sizeof(path), "%s", resolved);
 
   struct stat st {};
-  if (stat(p, &st) == 0 && S_ISDIR(st.st_mode)) {
-    dir = opendir(p);
+  if (stat(resolved, &st) == 0 && S_ISDIR(st.st_mode)) {
+    dir = opendir(resolved);
     return dir != nullptr;
   }
 
   // O_AT_END is SdFat's own bit, not a POSIX one: strip it before the call and
   // honour it with an explicit seek afterwards.
   const bool atEnd = (flags & O_AT_END) != 0;
-  fd = ::open(p, flags & ~O_AT_END, 0644);
+  fd = ::open(resolved, flags & ~O_AT_END, 0644);
   if (fd < 0) {
     return false;
   }
@@ -228,17 +265,24 @@ void FsFile::printName(Print* out) const {
 
 bool SdFs::exists(const char* p) const {
   struct stat st {};
-  return p != nullptr && stat(p, &st) == 0;
+  return p != nullptr && stat(crosspoint_storage::resolve(p), &st) == 0;
 }
 
-bool SdFs::mkdir(const char* p, const bool createParents) { return makeDirs(p, createParents); }
+bool SdFs::mkdir(const char* p, const bool createParents) { return makeDirs(crosspoint_storage::resolve(p), createParents); }
 
-bool SdFs::rmdir(const char* p) { return p != nullptr && ::rmdir(p) == 0; }
+bool SdFs::rmdir(const char* p) { return p != nullptr && ::rmdir(crosspoint_storage::resolve(p)) == 0; }
 
-bool SdFs::remove(const char* p) { return p != nullptr && ::unlink(p) == 0; }
+bool SdFs::remove(const char* p) { return p != nullptr && ::unlink(crosspoint_storage::resolve(p)) == 0; }
 
 bool SdFs::rename(const char* from, const char* to) {
-  return from != nullptr && to != nullptr && ::rename(from, to) == 0;
+  if (from == nullptr || to == nullptr) {
+    return false;
+  }
+  // Resolve the source first and copy it: resolve() hands back one buffer, so
+  // the second call would overwrite the first.
+  char src[1024];
+  std::snprintf(src, sizeof(src), "%s", crosspoint_storage::resolve(from));
+  return ::rename(src, crosspoint_storage::resolve(to)) == 0;
 }
 
 FsFile SdFs::open(const char* p, const oflag_t flags) {
@@ -253,13 +297,14 @@ bool FsFile::rename(const char* newPath) {
   if (newPath == nullptr || path[0] == '\0') {
     return false;
   }
+  const char* resolvedNew = crosspoint_storage::resolve(newPath);
   // The data has to be on disk before the name moves: a rename that beats the
   // writeback would leave the new name pointing at a short file.
   flush();
-  if (::rename(path, newPath) != 0) {
+  if (::rename(path, resolvedNew) != 0) {
     return false;
   }
-  std::snprintf(path, sizeof(path), "%s", newPath);
+  std::snprintf(path, sizeof(path), "%s", resolvedNew);
   return true;
 }
 

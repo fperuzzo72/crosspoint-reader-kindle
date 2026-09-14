@@ -184,7 +184,26 @@ class GfxRenderer {
                              uint8_t styleMask = 0x0F) const;
 
   // Orientation control (affects logical width/height and coordinate transforms)
-  void setOrientation(const Orientation o) { orientation = o; }
+  // The Orientation enum is written from the Xteink panels' point of view,
+  // where the panel is physically landscape and Portrait is the rotated case:
+  // rotateCoordinates() turns Portrait 90 degrees clockwise, and
+  // getScreenWidth() returns panelHeight for it.
+  //
+  // A Kindle's panel is physically portrait (600x800), so every one of those
+  // mappings is a quarter turn out and the reader comes up in landscape.
+  //
+  // Rather than special-case the seven switches that read `orientation`, the
+  // value is remapped once here. Each logical orientation is satisfied by the
+  // physical mapping of the preceding enumerator, so the whole table shifts by
+  // one and everything downstream (coordinates, dimensions, dither phase, icon
+  // plotting) stays consistent without knowing about the device.
+  void setOrientation(const Orientation o) {
+#if FREEINK_PANEL_NATIVE_PORTRAIT
+    orientation = static_cast<Orientation>((static_cast<int>(o) + 3) % 4);
+#else
+    orientation = o;
+#endif
+  }
   Orientation getOrientation() const { return orientation; }
 
   // Fading fix control
