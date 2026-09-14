@@ -43,6 +43,34 @@ using TickType_t = uint32_t;
 #define pdMS_TO_TICKS(ms) (static_cast<TickType_t>(ms))
 #endif
 
+// Critical sections. On the ESP32 these are spinlocks that also disable
+// interrupts on the current core; here there are no interrupts to disable and
+// a mutex is the honest equivalent. Recursive, because the tree nests them.
+struct portMUX_TYPE {
+  pthread_mutex_t lock;
+};
+#define portMUX_INITIALIZER_UNLOCKED {PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP}
+#ifndef portMUX_FREE_VAL
+#define portMUX_FREE_VAL 0
+#endif
+
+inline void portENTER_CRITICAL(portMUX_TYPE* mux) {
+  if (mux != nullptr) {
+    pthread_mutex_lock(&mux->lock);
+  }
+}
+inline void portEXIT_CRITICAL(portMUX_TYPE* mux) {
+  if (mux != nullptr) {
+    pthread_mutex_unlock(&mux->lock);
+  }
+}
+// The task-level spellings; identical here, since there is no interrupt
+// context to distinguish them from.
+#define taskENTER_CRITICAL(mux) portENTER_CRITICAL(mux)
+#define taskEXIT_CRITICAL(mux) portEXIT_CRITICAL(mux)
+#define portENTER_CRITICAL_ISR(mux) portENTER_CRITICAL(mux)
+#define portEXIT_CRITICAL_ISR(mux) portEXIT_CRITICAL(mux)
+
 inline void vTaskDelay(const TickType_t ticks) {
   timespec ts{};
   ts.tv_sec = static_cast<time_t>(ticks / 1000);

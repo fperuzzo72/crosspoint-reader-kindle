@@ -196,7 +196,7 @@ wl_status_t WiFiClass::begin(const char*, const char*) {
 }
 
 bool WiFiClass::disconnect(bool, bool) { return false; }
-bool WiFiClass::softAP(const char*, const char*) { return false; }
+bool WiFiClass::softAP(const char*, const char*, int32_t, bool, int32_t) { return false; }
 bool WiFiClass::softAPdisconnect(bool) { return false; }
 int16_t WiFiClass::scanNetworks(bool) { return 0; }
 String WiFiClass::SSID(uint8_t) { return String(); }  // no scan results to name
@@ -495,4 +495,14 @@ void WiFiClient::setConnectionTimeout(const uint32_t ms) {
   tv.tv_usec = static_cast<suseconds_t>((ms % 1000) * 1000);
   setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
+#include "arduino-shim/ESPmDNS.h"
+
+MDNSResponder MDNS;
+
+String IPAddress::toString() const {
+  char buf[16];
+  toCharArray(buf, sizeof(buf));
+  return String(buf);
 }

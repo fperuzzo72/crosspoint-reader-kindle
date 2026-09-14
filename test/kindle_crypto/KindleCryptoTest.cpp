@@ -10,6 +10,9 @@
 #include <gtest/gtest.h>
 
 #include "MD5Builder.h"
+#include <cstring>
+#include <string>
+
 #include "base64.h"
 
 namespace {
@@ -107,6 +110,52 @@ TEST(KindleCrypto, Base64HandlesBinaryAndTheFullAlphabet) {
 
 TEST(KindleCrypto, Base64DecodeSkipsWhitespaceLikeEveryOtherDecoder) {
   EXPECT_EQ(base64::decode(String("Zm9v\r\nYmFy")).str(), "foobar");
+}
+
+// RFC 3174 / FIPS 180-1 vectors, plus the worked example from RFC 6455 itself.
+// A wrong SHA-1 here fails loudly rather than silently, since the browser
+// simply refuses the upgrade, but that failure is far from its cause.
+TEST(KindleCrypto, Sha1MatchesPublishedVectors) {
+  const auto hex = [](const char* text) {
+    uint8_t d[20];
+    sha1(reinterpret_cast<const uint8_t*>(text), std::strlen(text), d);
+    char out[41];
+    for (int i = 0; i < 20; ++i) {
+      std::snprintf(out + i * 2, 3, "%02x", d[i]);
+    }
+    return std::string(out);
+  };
+
+  EXPECT_EQ(hex(""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+  EXPECT_EQ(hex("abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
+  EXPECT_EQ(hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+            "84983e441c3bd26ebaae4aa1f95129e5e54670f1");
+}
+
+TEST(KindleCrypto, Sha1HandlesTheBlockBoundary) {
+  const auto hexOf = [](const std::string& in) {
+    uint8_t d[20];
+    sha1(reinterpret_cast<const uint8_t*>(in.data()), in.size(), d);
+    char out[41];
+    for (int i = 0; i < 20; ++i) {
+      std::snprintf(out + i * 2, 3, "%02x", d[i]);
+    }
+    return std::string(out);
+  };
+  // 55, 56 and 64 bytes: where the length field either fits in the block or
+  // forces another one.
+  EXPECT_EQ(hexOf(std::string(55, 'a')), "c1c8bbdc22796e28c0e15163d20899b65621d65a");
+  EXPECT_EQ(hexOf(std::string(56, 'a')), "c2db330f6083854c99d4b5bfb6e8f29f201be699");
+  EXPECT_EQ(hexOf(std::string(64, 'a')), "0098ba824b5c16427bd7a1122a5a442a25ec644d");
+}
+
+TEST(KindleCrypto, WebSocketHandshakeAcceptMatchesRfc6455) {
+  // RFC 6455 section 1.3's worked example: this exact key must produce this
+  // exact accept value, or every browser refuses the upgrade.
+  const std::string key = "dGhlIHNhbXBsZSBub25jZQ==258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+  uint8_t d[20];
+  sha1(reinterpret_cast<const uint8_t*>(key.data()), key.size(), d);
+  EXPECT_EQ(base64::encode(d, sizeof(d)).str(), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
 }
 
 }  // namespace

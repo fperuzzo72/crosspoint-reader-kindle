@@ -236,3 +236,88 @@ void MD5Builder::getBytes(uint8_t* output) {
     std::memcpy(output, digest, sizeof(digest));
   }
 }
+
+// ------------------------------------------------------------------ SHA-1 ---
+
+namespace {
+
+uint32_t rotl32(const uint32_t x, const uint32_t c) { return (x << c) | (x >> (32 - c)); }
+
+}  // namespace
+
+void sha1(const uint8_t* data, const size_t length, uint8_t digest[20]) {
+  uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+
+  // Message plus 0x80, zero padding to 56 mod 64, then the length in bits as
+  // a big-endian 64-bit value. Building it in one buffer keeps the block loop
+  // simple; the inputs here are handshake keys, never large.
+  const size_t totalLen = ((length + 8) / 64 + 1) * 64;
+  auto* msg = static_cast<uint8_t*>(std::calloc(totalLen, 1));
+  if (msg == nullptr) {
+    std::memset(digest, 0, 20);
+    return;
+  }
+  std::memcpy(msg, data, length);
+  msg[length] = 0x80;
+  const uint64_t bitLen = static_cast<uint64_t>(length) * 8;
+  for (int i = 0; i < 8; ++i) {
+    msg[totalLen - 1 - i] = static_cast<uint8_t>((bitLen >> (8 * i)) & 0xFF);
+  }
+
+  for (size_t off = 0; off < totalLen; off += 64) {
+    uint32_t w[80];
+    for (int i = 0; i < 16; ++i) {
+      // Big-endian, unlike MD5.
+      w[i] = (static_cast<uint32_t>(msg[off + i * 4]) << 24) | (static_cast<uint32_t>(msg[off + i * 4 + 1]) << 16) |
+             (static_cast<uint32_t>(msg[off + i * 4 + 2]) << 8) | static_cast<uint32_t>(msg[off + i * 4 + 3]);
+    }
+    for (int i = 16; i < 80; ++i) {
+      w[i] = rotl32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    }
+
+    uint32_t a = h[0];
+    uint32_t b = h[1];
+    uint32_t c = h[2];
+    uint32_t d = h[3];
+    uint32_t e = h[4];
+
+    for (int i = 0; i < 80; ++i) {
+      uint32_t f = 0;
+      uint32_t k = 0;
+      if (i < 20) {
+        f = (b & c) | (~b & d);
+        k = 0x5A827999;
+      } else if (i < 40) {
+        f = b ^ c ^ d;
+        k = 0x6ED9EBA1;
+      } else if (i < 60) {
+        f = (b & c) | (b & d) | (c & d);
+        k = 0x8F1BBCDC;
+      } else {
+        f = b ^ c ^ d;
+        k = 0xCA62C1D6;
+      }
+      const uint32_t tmp = rotl32(a, 5) + f + e + k + w[i];
+      e = d;
+      d = c;
+      c = rotl32(b, 30);
+      b = a;
+      a = tmp;
+    }
+
+    h[0] += a;
+    h[1] += b;
+    h[2] += c;
+    h[3] += d;
+    h[4] += e;
+  }
+
+  std::free(msg);
+
+  for (int i = 0; i < 5; ++i) {
+    digest[i * 4] = static_cast<uint8_t>((h[i] >> 24) & 0xFF);
+    digest[i * 4 + 1] = static_cast<uint8_t>((h[i] >> 16) & 0xFF);
+    digest[i * 4 + 2] = static_cast<uint8_t>((h[i] >> 8) & 0xFF);
+    digest[i * 4 + 3] = static_cast<uint8_t>(h[i] & 0xFF);
+  }
+}

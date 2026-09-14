@@ -421,3 +421,110 @@ size_t heap_caps_get_minimum_free_size(uint32_t caps) {
   // the edge, since it will not falsely claim a shortage.
   return heap_caps_get_free_size(caps);
 }
+
+// --------------------------------------------------- task notifications ---
+//
+// FreeRTOS gives every task a built-in counting semaphore. There is no such
+// per-thread slot here, so one is kept in a small table keyed by thread.
+
+namespace {
+
+struct Notification {
+  pthread_t thread;
+  uint32_t count;
+  pthread_cond_t cond;
+  bool inUse;
+};
+
+constexpr size_t MAX_NOTIFIED_TASKS = 8;
+Notification g_notifications[MAX_NOTIFIED_TASKS];
+pthread_mutex_t g_notifyLock = PTHREAD_MUTEX_INITIALIZER;
+
+// Caller must hold g_notifyLock.
+Notification* slotFor(const pthread_t thread, const bool create) {
+  for (auto& n : g_notifications) {
+    if (n.inUse && pthread_equal(n.thread, thread)) {
+      return &n;
+    }
+  }
+  if (!create) {
+    return nullptr;
+  }
+  for (auto& n : g_notifications) {
+    if (!n.inUse) {
+      n.inUse = true;
+      n.thread = thread;
+      n.count = 0;
+      pthread_cond_init(&n.cond, nullptr);
+      return &n;
+    }
+  }
+  // Out of slots. Returning null makes the take return 0 immediately, which
+  // the caller reads as "nothing to do" rather than hanging forever.
+  return nullptr;
+}
+
+}  // namespace
+
+TaskHandle_t xTaskGetCurrentTaskHandle() {
+  // The handle is only ever compared and passed back in, so a per-thread
+  // pointer to its own id is enough.
+  static thread_local pthread_t self = pthread_self();
+  return &self;
+}
+
+uint32_t ulTaskNotifyTake(const BaseType_t clearOnExit, const TickType_t timeoutTicks) {
+  pthread_mutex_lock(&g_notifyLock);
+  Notification* n = slotFor(pthread_self(), true);
+  if (n == nullptr) {
+    pthread_mutex_unlock(&g_notifyLock);
+    return 0;
+  }
+
+  while (n->count == 0) {
+    if (timeoutTicks == 0) {
+      break;
+    }
+    if (timeoutTicks == portMAX_DELAY) {
+      pthread_cond_wait(&n->cond, &g_notifyLock);
+      continue;
+    }
+    timespec deadline{};
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += static_cast<time_t>(timeoutTicks / 1000);
+    deadline.tv_nsec += static_cast<long>(timeoutTicks % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+      deadline.tv_nsec -= 1000000000L;
+      ++deadline.tv_sec;
+    }
+    if (pthread_cond_timedwait(&n->cond, &g_notifyLock, &deadline) != 0) {
+      break;  // timed out
+    }
+  }
+
+  const uint32_t taken = n->count;
+  // FreeRTOS semantics: clearOnExit zeroes the counter, otherwise it decrements.
+  if (clearOnExit != pdFALSE) {
+    n->count = 0;
+  } else if (n->count > 0) {
+    --n->count;
+  }
+  pthread_mutex_unlock(&g_notifyLock);
+  return taken;
+}
+
+BaseType_t xTaskNotifyGive(const TaskHandle_t task) {
+  if (task == nullptr) {
+    return pdFAIL;
+  }
+  pthread_mutex_lock(&g_notifyLock);
+  Notification* n = slotFor(*task, true);
+  if (n == nullptr) {
+    pthread_mutex_unlock(&g_notifyLock);
+    return pdFAIL;
+  }
+  ++n->count;
+  pthread_cond_signal(&n->cond);
+  pthread_mutex_unlock(&g_notifyLock);
+  return pdPASS;
+}

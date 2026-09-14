@@ -15,9 +15,18 @@
 #   docker run --rm -v "$PWD:/src" -w /src crosspoint-kindle-tc:latest \
 #       sh tools/kindle/trylink.sh
 #
+# Parallel and incremental. The first version compiled all 224 sources serially
+# on every run, which cost minutes while the link itself is instant: the whole
+# wait was one core doing what four could, repeating work that had not changed.
+# Now an object is rebuilt only when its source is newer, so a re-run after
+# touching one file takes seconds.
+#
 set -u
+
 CROSS=arm-kindlepw2-linux-gnueabi-g++
+CROSS_CC=arm-kindlepw2-linux-gnueabi-gcc
 OUT=build/kindle/link
+JOBS=$(nproc 2>/dev/null || echo 4)
 mkdir -p "$OUT"
 
 INC="-Ibuild/kindle/FBInk/libunibreak/src -Ibuild/kindle/thirdparty -Ibuild/kindle/FBInk"
@@ -26,48 +35,51 @@ for d in $(find freeink-sdk/libs -type d -name include); do INC="$INC -I$d"; don
 for d in lib/*/; do INC="$INC -I${d%/}"; done
 INC="$INC -Ilib/miniz/src -Ilib/uzlib/src -Ilib/hal/kindle -Ilib/hal -Isrc -Ilib"
 INC="$INC -Isrc/components -Isrc/activities -Isrc/util -Isrc/network"
-
-echo "--- compiling every source that passes ---"
-objs=""
-n=0
-# FreeInkDisplay/src is the panel driver stack: PanelDriver implementations and
-# the EpdBus they talk through. On this target HalDisplay bypasses all of it, so
-# compiling it only produces objects that reference an EpdBus which cannot
-# exist here. That is where every remaining EpdBus undefined came from.
-#
-# expat, miniz and uzlib ARE needed at link time; excluding them from the
-# object list is why XML_SetElementHandler came back undefined. They are C
-# sources compiled separately below.
-for f in $(find src lib freeink-sdk/libs -name '*.cpp' 2>/dev/null \
-           | grep -vE '/test/|/tools/|FBInk' \
-           | grep -vE 'freeink-sdk/libs/display/FreeInkDisplay/src/'); do
-    o="$OUT/$(echo "$f" | tr '/' '_' | sed 's/\.cpp$/.o/')"
-    if $CROSS -std=c++20 -Os -c $INC -DFREEINK_DEVICE_KINDLE=1 "$f" -o "$o" 2>/dev/null; then
-        objs="$objs $o"
-        n=$((n + 1))
-    fi
-done
-echo "objetos produzidos: $n"
-
-echo "--- compiling the C third-party trees ---"
-# expat is configured by defines, not by a config header: platformio.ini passes
-# these and without them xmlparse.c refuses to build at all.
+DEF="-DFREEINK_DEVICE_KINDLE=1"
+# expat is configured by defines rather than a config header, and xmlparse.c
+# refuses to build without them.
 CDEFS="-DXML_GE=0 -DXML_CONTEXT_BYTES=1024"
-for f in $(find lib/expat lib/miniz lib/uzlib -name '*.c' 2>/dev/null); do
-    o="$OUT/$(echo "$f" | tr '/' '_' | sed 's/\.c$/.o/')"
-    if arm-kindlepw2-linux-gnueabi-gcc -Os -c $INC $CDEFS "$f" -o "$o" 2>/dev/null; then
-        objs="$objs $o"
-    fi
-done
+
+# A real helper script rather than an exported shell function: the container's
+# /bin/sh is dash, `export -f` is a bashism, and using one made every parallel
+# worker fail silently.
+cat > "$OUT/cc-one.sh" <<HELPER
+#!/bin/sh
+f="\$1"
+o="$OUT/\$(echo "\$f" | tr '/' '_' | sed 's/\.[cp]*\$/.o/')"
+# Skip when the object is already newer than its source.
+if [ -f "\$o" ] && [ "\$o" -nt "\$f" ]; then exit 0; fi
+case "\$f" in
+  *.c) $CROSS_CC -Os -c $INC $CDEFS "\$f" -o "\$o" 2>/dev/null ;;
+  *)   $CROSS -std=c++20 -Os -c $INC $DEF "\$f" -o "\$o" 2>/dev/null ;;
+esac
+# A file that does not compile leaves no object, and the link then reports its
+# symbols as undefined. That is the measurement, not a failure to handle.
+exit 0
+HELPER
+chmod +x "$OUT/cc-one.sh"
+
+# FreeInkDisplay/src is the panel driver stack: PanelDriver implementations and
+# the EpdBus they talk through. HalDisplay bypasses all of it on this target,
+# so compiling it only yields objects referencing a bus that cannot exist here.
+find src lib freeink-sdk/libs -name '*.cpp' 2>/dev/null \
+  | grep -vE '/test/|/tools/|FBInk' \
+  | grep -vE 'FreeInkDisplay/src/' > "$OUT/sources.txt"
+find lib/expat lib/miniz lib/uzlib -name '*.c' 2>/dev/null > "$OUT/csources.txt"
+
+echo "--- compiling ($(wc -l < "$OUT/sources.txt" | tr -d ' ') C++, $(wc -l < "$OUT/csources.txt" | tr -d ' ') C, -j$JOBS, incremental) ---"
+cat "$OUT/sources.txt" "$OUT/csources.txt" | xargs -P "$JOBS" -n1 "$OUT/cc-one.sh"
+
+objs=$(ls "$OUT"/*.o 2>/dev/null | tr '\n' ' ')
+echo "objects: $(echo $objs | wc -w | tr -d ' ')"
 
 echo "--- attempting a link ---"
 $CROSS -o "$OUT/crosspoint" $objs \
     build/kindle/FBInk/Release/libfbink.a -lrt -lpthread 2>"$OUT/link.err"
-status=$?
-echo "exit: $status"
+echo "exit: $?"
 echo
 echo "--- undefined symbols, by frequency ---"
-grep -oE "undefined reference to \`[^']*'" "$OUT/link.err" \
-  | sed "s/undefined reference to //" | sort | uniq -c | sort -rn | head -25
+grep -oE "undefined reference to .[^']*'" "$OUT/link.err" \
+  | sed "s/undefined reference to //" | sort | uniq -c | sort -rn | head -20
 echo
-echo "total de referencias indefinidas distintas: $(grep -oE "undefined reference to \`[^']*'" "$OUT/link.err" | sort -u | wc -l | tr -d ' ')"
+echo "distinct undefined references: $(grep -oE "undefined reference to .[^']*'" "$OUT/link.err" | sort -u | wc -l | tr -d ' ')"

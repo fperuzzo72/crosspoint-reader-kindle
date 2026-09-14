@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "../ArduinoCompat.h"
+
 class IPAddress {
  public:
   IPAddress() = default;
@@ -31,6 +33,9 @@ class IPAddress {
            octets[3] == o.octets[3];
   }
   bool operator!=(const IPAddress& o) const { return !(*this == o); }
+
+  // The tree uses both spellings.
+  String toString() const;
 
   // Callers format this into log lines and QR payloads.
   size_t toCharArray(char* buf, const size_t len) const {

@@ -72,7 +72,10 @@ class WiFiClass {
   // connection nobody requested.
   wl_status_t begin(const char* ssid = nullptr, const char* passphrase = nullptr);
   bool disconnect(bool wifiOff = false, bool eraseAp = false);
-  bool softAP(const char* ssid, const char* passphrase = nullptr);
+  // The full ESP32 signature: channel, hidden, max connections. Accepted so
+  // the call sites compile unchanged, and refused all the same.
+  bool softAP(const char* ssid, const char* passphrase = nullptr, int32_t channel = 1, bool ssidHidden = false,
+              int32_t maxConnections = 4);
   bool softAPdisconnect(bool wifiOff = false);
   IPAddress softAPIP() { return IPAddress(); }
   uint8_t softAPgetStationNum() { return 0; }

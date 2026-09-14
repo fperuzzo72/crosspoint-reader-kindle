@@ -56,3 +56,5 @@ class NetworkUdp : public Stream {
 };
 
 using WiFiUDP = NetworkUdp;
+// The ESP32 core ships both spellings and the tree uses both.
+using NetworkUDP = NetworkUdp;
