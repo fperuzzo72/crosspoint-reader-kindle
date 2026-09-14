@@ -204,16 +204,27 @@ bool KindleFrameBuffer::panelContentWasReplaced() const {
   if (!haveContentSample || fbMem == nullptr || mapLen < PANEL_SAMPLES) {
     return false;
   }
-  // One differing sample is enough to know a second writer exists, but a
-  // threshold keeps a stray byte from triggering a repaint: a blanking pass
-  // changes nearly everything, so the signal is never marginal.
+  // The threshold is low on purpose, and the first version got this wrong by
+  // reasoning about the wrong thing. "A blanking pass changes nearly
+  // everything" is true of the PANEL and false of the SAMPLES: a page of text
+  // is already almost entirely white, so clearing it to white only changes the
+  // pixels that carried ink, which is well under a fifth of them. A quarter of
+  // the samples was therefore a threshold that could not fire for exactly the
+  // case this exists to catch, and did not.
+  //
+  // Memory does not change on its own, so a single differing byte is already
+  // real evidence of a second writer. A handful is asked for only so that a
+  // sample taken in the middle of our own composition cannot count as one.
   int differing = 0;
   for (int i = 0; i < PANEL_SAMPLES; ++i) {
     if (fbMem[sampleOffsetAt(i)] != contentSample[i]) {
       ++differing;
+      if (differing >= 4) {
+        return true;
+      }
     }
   }
-  return differing > PANEL_SAMPLES / 4;
+  return false;
 }
 
 uint8_t KindleFrameBuffer::peekPixel(const uint16_t x, const uint16_t y) const {

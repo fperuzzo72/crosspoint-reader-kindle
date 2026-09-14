@@ -190,7 +190,7 @@ class KindleFrameBuffer {
   // Spread thinly over the whole frame rather than clustered: a blanking pass
   // covers everything, but so would a single large white region in a book, and
   // only the spread tells them apart.
-  static constexpr int PANEL_SAMPLES = 96;
+  static constexpr int PANEL_SAMPLES = 256;
   uint8_t contentSample[PANEL_SAMPLES] = {};
   bool haveContentSample = false;
   size_t sampleOffsetAt(int index) const;
