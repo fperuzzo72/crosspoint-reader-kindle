@@ -105,8 +105,15 @@ docker run --rm -v "$PWD:/src" -w /src crosspoint-kindle-tc:latest \
     arm-kindlepw2-linux-gnueabi-strip build/kindle/link/crosspoint
 
 cp build/kindle/link/crosspoint /Volumes/Kindle/crosspoint/crosspoint
+cp tools/kindle/run.sh          /Volumes/Kindle/crosspoint/run.sh
 cp tools/kindle/crosspoint.sh   /Volumes/Kindle/documents/crosspoint.sh
 ```
+
+Two scripts, and the split is not decoration. `crosspoint.sh` is the scriptlet
+the Kindle launches; it is tiny, it hands off to a copy of `run.sh` in RAM, and
+it is meant never to change. Everything that does change lives in `run.sh`,
+which is executed from `/tmp` so that replacing it during a session cannot
+corrupt the session. The binary is copied to RAM for the same reason.
 
 Books go in `/mnt/us/ebooks`, which is `ebooks/` on the mounted volume.
 Eject, and `crosspoint.sh` appears on the home screen as if it were a book.
