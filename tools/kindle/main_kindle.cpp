@@ -33,6 +33,8 @@
 
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 
 // Defined in src/main.cpp, which is shared with every other target.
 void setup();
@@ -109,6 +111,13 @@ int main() {
   for (const int sig : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) {
     sigaction(sig, &crashAction, nullptr);
   }
+
+  // Seed the C library generator, because the shim's random() is rand() and an
+  // unseeded rand() returns the SAME sequence on every run. On the ESP32 this
+  // never came up: random() there is backed by the hardware generator and needs
+  // no seeding, so nothing in the tree calls randomSeed(). The visible symptom
+  // would have been a "random" sleep wallpaper that is the same one every time.
+  std::srand(static_cast<unsigned>(::time(nullptr)) ^ static_cast<unsigned>(::getpid()));
 
   if (chdir("/mnt/us") != 0) {
     // Not fatal: a development run from elsewhere should still start, and

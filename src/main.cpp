@@ -34,6 +34,7 @@
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
+#include "activities/boot_sleep/SleepActivity.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
@@ -620,32 +621,56 @@ void loop() {
   const unsigned long loopStartTime = millis();
   static unsigned long lastMemPrint = 0;
 
+  gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
+  mappedInputManager.update();
+
 #if FREEINK_DEVICE_KINDLE
   // Two different ways this process can end up showing a stale or blank panel,
   // and they turned out to be different problems wearing the same symptom.
   //
   // The first is a real suspend: the machine stops out from under the process
-  // and thaws later with no idea anything happened. resumedFromSuspend()
-  // catches that, and the panel is reopened before repainting because a
-  // suspend can leave the /dev/fb0 mapping valid as memory while it quietly
-  // stops being the panel.
+  // and thaws later with no idea anything happened. It is the RARER of the two:
+  // most power button presses only blank the screen, and those sessions never
+  // report a suspend while still needing everything below.
   //
-  // The second is the one the device actually reported, and no suspend is
-  // involved. /dev/fb0 is ONE framebuffer shared with the Kindle's own UI, so
-  // when the framework blanks the screen it overwrites our pixels in the
-  // mapping we both hold. The reader stays alive and correct the whole time,
-  // which is exactly what was observed: a white screen that answers touches
-  // and redraws properly the moment it is asked to. Nothing about a clock or a
-  // wake-up event describes that. What describes it is that what we wrote is no
-  // longer what is there, so that is what gets asked.
+  // The second is the one that does the work. /dev/fb0 is ONE framebuffer
+  // shared with the Kindle's own UI, so when the framework blanks the screen it
+  // overwrites our pixels in the mapping we both hold. The reader stays alive
+  // and correct throughout, which is exactly what was observed: a white screen
+  // that answers touches and redraws properly the moment it is asked to.
+  //
+  // Which of those two blanks is "going to sleep" and which is "waking up" is
+  // not a question the framebuffer can answer: both look identical from here.
+  // They alternate, though, so that is what is tracked. A touch while the sleep
+  // screen is up also dismisses it, which makes the alternation self-correcting
+  // if the framework ever blanks an odd number of times.
+  static unsigned long nextPanelCheckAt = 0;
+  static uint8_t consecutiveRepaints = 0;
+  static bool storageWasAttached = true;
+  static bool sleepScreenShowing = false;
+  static constexpr uint8_t MAX_CONSECUTIVE_REPAINTS = 4;
+
+  const auto showSleepScreen = [] {
+    // fromTimeout deliberately false: with it, and the right setting, this
+    // renders the last screen, which is precisely the thing a sleep screen is
+    // being asked NOT to be. Quick Resume stays available to anyone who picks
+    // it on purpose.
+    activityManager.pushActivity(std::make_unique<SleepActivity>(renderer, mappedInputManager, false));
+  };
+
   {
     uint32_t millisAsleep = 0;
     if (HalSystem::resumedFromSuspend(&millisAsleep)) {
       std::fprintf(stderr, "[kindle] resumed after %lums suspended; reopening the panel\n",
                    static_cast<unsigned long>(millisAsleep));
       if (display.reinitAfterResume()) {
-        activityManager.handleForcedRefresh();
-        activityManager.requestUpdate();
+        if (sleepScreenShowing) {
+          sleepScreenShowing = false;
+          activityManager.popActivity();
+        } else {
+          activityManager.handleForcedRefresh();
+          activityManager.requestUpdate();
+        }
       } else {
         // The panel cannot be reopened, so this process can neither draw nor
         // get out of the way, and the device would need a reboot to recover.
@@ -657,15 +682,18 @@ void loop() {
     }
   }
 
+  if (sleepScreenShowing) {
+    int touchX = 0;
+    int touchY = 0;
+    if (mappedInputManager.wasScreenTouchDown(touchX, touchY)) {
+      std::fprintf(stderr, "[kindle] touch dismissed the sleep screen\n");
+      sleepScreenShowing = false;
+      activityManager.popActivity();
+    }
+  }
+
   // Polled rather than checked every iteration: the loop runs far faster than
   // any blanking, and this reads device memory.
-  static unsigned long nextPanelCheckAt = 0;
-  static uint8_t consecutiveRepaints = 0;
-  static bool storageWasAttached = true;
-  // A cap, because the framework is a persistent writer during USB mass storage
-  // and repainting over it forever would be a fight this process should lose:
-  // the user wants the "connected" screen then, not the reader.
-  static constexpr uint8_t MAX_CONSECUTIVE_REPAINTS = 4;
   if (millis() >= nextPanelCheckAt) {
     nextPanelCheckAt = millis() + 400;
     if (!HalSystem::storageIsAttached()) {
@@ -680,9 +708,6 @@ void loop() {
       }
       consecutiveRepaints = 0;
     } else if (!storageWasAttached) {
-      // Back from USB. The framework owns the glass at this moment, so say so
-      // and let the next check repaint over it, rather than racing the
-      // remount with a page read.
       storageWasAttached = true;
       std::fprintf(stderr, "[kindle] storage reattached\n");
       consecutiveRepaints = 0;
@@ -690,17 +715,22 @@ void loop() {
       consecutiveRepaints = 0;  // our paint stuck; the field is ours again
     } else if (consecutiveRepaints < MAX_CONSECUTIVE_REPAINTS) {
       ++consecutiveRepaints;
-      std::fprintf(stderr, "[kindle] panel was painted over by something else; repainting (%u)\n",
-                   static_cast<unsigned>(consecutiveRepaints));
-      nextPanelCheckAt = millis() + 1200;  // give the repaint time to land
-      activityManager.handleForcedRefresh();
-      activityManager.requestUpdate();
+      nextPanelCheckAt = millis() + 1200;  // give the paint time to land
+      if (sleepScreenShowing) {
+        std::fprintf(stderr, "[kindle] panel blanked again; taking it back from the sleep screen (%u)\n",
+                     static_cast<unsigned>(consecutiveRepaints));
+        sleepScreenShowing = false;
+        activityManager.popActivity();
+      } else {
+        std::fprintf(stderr, "[kindle] panel was painted over; showing the sleep screen (%u)\n",
+                     static_cast<unsigned>(consecutiveRepaints));
+        sleepScreenShowing = true;
+        showSleepScreen();
+      }
     }
   }
 #endif
 
-  gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
-  mappedInputManager.update();
 
   if (activityManager.requiresExclusiveStorageLoop()) {
     // USB Drive handed the raw SD card to the host. Do not run screenshots,
