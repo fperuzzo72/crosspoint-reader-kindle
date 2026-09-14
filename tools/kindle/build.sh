@@ -8,6 +8,7 @@
 #
 # Output: soft-float ARM binaries for the KT3 in build/kindle/:
 #   smoketest   display backend first light, verifies pixels land
+#   touchtest   touch and display together: gestures draw on screen
 #   inputprobe  dumps the evdev devices and a capture of real touches
 set -eu
 
@@ -46,6 +47,19 @@ echo "--- building smoketest"
     "$OUT/FBInk/Release/libfbink.a" \
     -lrt
 
+echo "--- building touchtest"
+"$CROSS_TC-g++" \
+    -std=c++20 -Os -Wall -Wextra \
+    -I "$OUT/FBInk" \
+    -o "$OUT/touchtest" \
+    tools/kindle/touchtest.cpp \
+    lib/hal/kindle/KindleGrayExpand.cpp \
+    lib/hal/kindle/KindleFrameBuffer.cpp \
+    lib/hal/kindle/KindleTouchClassifier.cpp \
+    lib/hal/kindle/KindleTouchDevice.cpp \
+    "$OUT/FBInk/Release/libfbink.a" \
+    -lrt
+
 echo "--- building inputprobe"
 # No FBInk here: this one only talks to evdev.
 "$CROSS_TC-g++" \
@@ -53,11 +67,11 @@ echo "--- building inputprobe"
     -o "$OUT/inputprobe" \
     tools/kindle/inputprobe.cpp
 
-for b in smoketest inputprobe; do
+for b in smoketest touchtest inputprobe; do
     "$CROSS_TC-strip" "$OUT/$b"
 done
 
 echo "--- done"
-for b in smoketest inputprobe; do
+for b in smoketest touchtest inputprobe; do
     file "$OUT/$b"
 done

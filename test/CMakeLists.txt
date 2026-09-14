@@ -68,3 +68,5 @@ add_subdirectory(absolute_grayscale)
 add_subdirectory(sd_card_font)
 
 add_subdirectory(kindle_arduino_string)
+
+add_subdirectory(kindle_touch)
