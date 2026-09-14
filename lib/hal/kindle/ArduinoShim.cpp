@@ -15,6 +15,7 @@
 #include "arduino-shim/Print.h"
 #include "arduino-shim/Stream.h"
 #include "arduino-shim/SPI.h"
+#include "arduino-shim/Update.h"
 #include "arduino-shim/Wire.h"
 #include "arduino-shim/esp_heap_caps.h"
 #include "arduino-shim/esp_rom_crc.h"
@@ -584,3 +585,7 @@ TaskHandle_t xSemaphoreGetMutexHolder(const SemaphoreHandle_t) {
   // here, which makes the debug assertions vacuous rather than wrong.
   return nullptr;
 }
+
+// ----------------------------------------------------------------- OTA ---
+
+UpdateClass Update;

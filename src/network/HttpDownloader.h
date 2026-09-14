@@ -1,4 +1,7 @@
 #pragma once
+// Stream is used in the signatures below; on the ESP32 core it arrives
+// transitively, which is luck rather than design.
+#include <Stream.h>
 #include <HalStorage.h>
 
 #include <functional>

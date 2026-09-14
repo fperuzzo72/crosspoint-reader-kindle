@@ -62,8 +62,8 @@ o="$OUT/\$(echo "\$f" | tr '/' '_' | sed 's/\.[cp]*\$/.o/')"
 # Skip when the object is already newer than its source.
 if [ -f "\$o" ] && [ "\$o" -nt "\$f" ]; then exit 0; fi
 case "\$f" in
-  *.c) $CROSS_CC -Os -c $INC $CDEFS "\$f" -o "\$o" 2>/dev/null ;;
-  *)   $CROSS -std=c++20 -Os -c $INC $DEF "\$f" -o "\$o" 2>/dev/null ;;
+  *.c) $CROSS_CC -Os -ffunction-sections -fdata-sections -c $INC $CDEFS "\$f" -o "\$o" 2>/dev/null ;;
+  *)   $CROSS -std=c++20 -Os -ffunction-sections -fdata-sections -c $INC $DEF "\$f" -o "\$o" 2>/dev/null ;;
 esac
 # A file that does not compile leaves no object, and the link then reports its
 # symbols as undefined. That is the measurement, not a failure to handle.
@@ -102,7 +102,13 @@ objs=$(ls "$OUT"/*.o 2>/dev/null | tr '\n' ' ')
 echo "objects: $(echo $objs | wc -w | tr -d ' ')"
 
 echo "--- attempting a link ---"
+# --gc-sections is what the firmware build uses and it is not just about size:
+# uzlib's checksum helpers are declared and called but never defined in the
+# vendored subset, and nothing calls the function that calls them. Without
+# section GC those show up as undefined references to code that is never
+# reached.
 $CROSS -o "$OUT/crosspoint" $objs \
+    -Wl,--gc-sections \
     build/kindle/FBInk/Release/libfbink.a -lrt -lpthread 2>"$OUT/link.err"
 echo "exit: $?"
 echo

@@ -81,6 +81,12 @@ target_compile_definitions(crosspoint_kindle_platform PUBLIC
 )
 target_compile_options(crosspoint_kindle_platform PRIVATE -Wall -Wextra)
 
+# Section GC, as the firmware build does. Not only about size: some vendored
+# third-party helpers are declared and called from functions nothing reaches,
+# and without this they surface as undefined references to dead code.
+add_compile_options(-ffunction-sections -fdata-sections)
+add_link_options(-Wl,--gc-sections)
+
 # clock_gettime lives in librt in glibc before 2.17, and this target predates
 # that by a decade. Without it the link fails on a symbol the header declares
 # perfectly happily.

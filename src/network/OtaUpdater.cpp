@@ -7,6 +7,9 @@
 #include "HttpDownloader.h"
 #include <Logging.h>
 #include <ReleaseJsonParser.h>
+// Update.h supplies OTA_SIZE_UNKNOWN, used below; on the ESP32 core it arrives
+// transitively, which is luck rather than design.
+#include <Update.h>
 #include <esp_ota_ops.h>
 #include <esp_wifi.h>
 // clang-format on
