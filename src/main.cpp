@@ -629,6 +629,18 @@ void loop() {
   // handleForcedRefresh() first so an activity that knows how to schedule a
   // clean pass does one: coming back from sleep is exactly when the panel
   // wants a full waveform rather than a differential update.
+  //
+  // One repaint is not enough, and the reason is a race rather than a bug. The
+  // panel comes back WHITE, and e-ink retains: if nothing were painting at all,
+  // the last CrossPoint frame would still be on the glass. Something is
+  // actively clearing it, and that something is the system finishing its own
+  // wake sequence after this process has already been thawed. So the repaint is
+  // repeated on a widening interval until the system has stopped touching the
+  // panel, which is what the user ends up doing by hand anyway.
+  static unsigned long resumeRepaintAt = 0;
+  static uint8_t resumeRepaintsLeft = 0;
+  static constexpr uint16_t RESUME_SETTLE_MS[] = {900, 1300, 1600};
+  static constexpr uint8_t RESUME_SETTLE_COUNT = sizeof(RESUME_SETTLE_MS) / sizeof(RESUME_SETTLE_MS[0]);
   {
     uint32_t millisAsleep = 0;
     if (HalSystem::resumedFromSuspend(&millisAsleep)) {
@@ -638,6 +650,8 @@ void loop() {
       std::fprintf(stderr, "[kindle] resumed after %lums suspended; forcing a repaint\n",
                    static_cast<unsigned long>(millisAsleep));
       if (display.reinitAfterResume()) {
+        resumeRepaintsLeft = RESUME_SETTLE_COUNT;
+        resumeRepaintAt = millis() + RESUME_SETTLE_MS[0];
         activityManager.handleForcedRefresh();
         activityManager.requestUpdate();
       } else {
@@ -648,6 +662,18 @@ void loop() {
         std::fprintf(stderr, "[kindle] panel unrecoverable after resume; exiting so the launcher can hand it back\n");
         HalSystem::requestApplicationExit();
       }
+    } else if (resumeRepaintsLeft > 0 && millis() >= resumeRepaintAt) {
+      // If a touch already redrew the screen these are redundant rather than
+      // harmful: the activity renders the same frame it would have rendered.
+      const uint8_t done = RESUME_SETTLE_COUNT - resumeRepaintsLeft;
+      --resumeRepaintsLeft;
+      if (resumeRepaintsLeft > 0) {
+        resumeRepaintAt = millis() + RESUME_SETTLE_MS[done + 1];
+      }
+      std::fprintf(stderr, "[kindle] settle repaint %u/%u after resume\n", static_cast<unsigned>(done + 1),
+                   static_cast<unsigned>(RESUME_SETTLE_COUNT));
+      activityManager.handleForcedRefresh();
+      activityManager.requestUpdate();
     }
   }
 #endif
