@@ -86,16 +86,20 @@ bool FsFile::open(const char* p, const oflag_t flags) {
   return true;
 }
 
-void FsFile::close() {
+bool FsFile::close() {
+  bool wasOpen = false;
   if (fd >= 0) {
     ::close(fd);
     fd = -1;
+    wasOpen = true;
   }
   if (dir != nullptr) {
     closedir(dir);
     dir = nullptr;
+    wasOpen = true;
   }
   path[0] = '\0';
+  return wasOpen;
 }
 
 int FsFile::read(void* buf, const size_t count) {
@@ -243,3 +247,31 @@ FsFile SdFs::open(const char* p, const oflag_t flags) {
 }
 
 int FsFile::read(uint8_t* buf, const size_t count) { return read(static_cast<void*>(buf), count); }
+
+bool FsFile::rename(const char* newPath) {
+  if (newPath == nullptr || path[0] == '\0') {
+    return false;
+  }
+  // The data has to be on disk before the name moves: a rename that beats the
+  // writeback would leave the new name pointing at a short file.
+  flush();
+  if (::rename(path, newPath) != 0) {
+    return false;
+  }
+  std::snprintf(path, sizeof(path), "%s", newPath);
+  return true;
+}
+
+void FsFile::rewindDirectory() {
+  if (dir != nullptr) {
+    rewinddir(dir);
+  }
+}
+
+FsFile FsFile::openNextFile(const oflag_t flags) {
+  FsFile entry;
+  openNext(&entry, flags);
+  // An exhausted directory yields a closed file, which is how the caller's
+  // `while (file)` loop terminates.
+  return entry;
+}

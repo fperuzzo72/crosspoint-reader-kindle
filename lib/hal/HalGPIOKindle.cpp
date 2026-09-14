@@ -199,4 +199,8 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   return WakeupReason::Other;
 }
 
+// Same as HalDisplayKindle.cpp: guarding out the ESP32 implementation took
+// this global with it.
+HalGPIO gpio;
+
 #endif  // FREEINK_DEVICE_KINDLE

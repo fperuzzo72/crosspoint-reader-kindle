@@ -86,6 +86,29 @@ target_compile_options(crosspoint_kindle_platform PRIVATE -Wall -Wextra)
 # perfectly happily.
 target_link_libraries(crosspoint_kindle_platform PUBLIC ${FBINK_LIB} rt pthread)
 
+# --- the reader itself ------------------------------------------------------
+# Not buildable yet: see tools/kindle/census.sh for what still does not compile
+# and docs/kindle-port.md for what it means. The target exists so that finishing
+# the port is a matter of the sources below compiling, not of inventing a build.
+# Enable with -DCROSSPOINT_BUILD_READER=ON once the census reaches 100%.
+option(CROSSPOINT_BUILD_READER "Link the reader binary (incomplete)" OFF)
+
+if(CROSSPOINT_BUILD_READER)
+  file(GLOB_RECURSE READER_SOURCES
+    ${REPO_ROOT}/src/*.cpp
+    ${REPO_ROOT}/lib/*/*.cpp
+    ${REPO_ROOT}/lib/*/*/*.cpp
+  )
+  # Third-party trees carry their own build rules and their own C dialects.
+  list(FILTER READER_SOURCES EXCLUDE REGEX "/(expat|miniz|uzlib)/")
+
+  add_executable(crosspoint
+    ${READER_SOURCES}
+    ${REPO_ROOT}/tools/kindle/main_kindle.cpp
+  )
+  target_link_libraries(crosspoint PRIVATE crosspoint_kindle_platform)
+endif()
+
 # --- on-device tools --------------------------------------------------------
 # Each has a matching scriptlet in tools/kindle/; see docs/kindle-build.md.
 function(add_kindle_tool name)

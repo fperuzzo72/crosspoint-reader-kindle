@@ -231,4 +231,10 @@ void HalDisplay::writeGrayscalePlaneStrip(bool, const uint8_t*, uint16_t, uint16
 void HalDisplay::preconditionGrayscale() {}
 void HalDisplay::preconditionGrayscale(uint16_t, uint16_t, uint16_t, uint16_t) {}
 
+// The single instance the tree talks to. It lives here rather than in
+// HalDisplay.cpp because that file compiles to nothing on this target, and
+// guarding it out took this definition with it: the first link after the
+// switch reported `display` undefined from every call site.
+HalDisplay display;
+
 #endif  // FREEINK_DEVICE_KINDLE

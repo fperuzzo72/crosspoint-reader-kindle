@@ -6,7 +6,14 @@ inline void sntp_setoperatingmode(int) {}
 inline void sntp_setservername(int, const char*) {}
 inline void sntp_init() {}
 inline void sntp_stop() {}
-inline int sntp_get_sync_status() { return 0; }
+#define SNTP_SYNC_STATUS_RESET 0
+#define SNTP_SYNC_STATUS_COMPLETED 1
+#define SNTP_SYNC_STATUS_IN_PROGRESS 2
+#define SNTP_OPMODE_POLL 0
+
+// Always RESET: this process never syncs, so claiming COMPLETED would tell the
+// clock code its time came from a server when it came from the system.
+inline int sntp_get_sync_status() { return SNTP_SYNC_STATUS_RESET; }
 
 // The esp_-prefixed spellings of the same calls; newer IDF renamed them and
 // the tree uses both.

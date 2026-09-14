@@ -37,7 +37,8 @@ class FsFile : public Stream {
   FsFile& operator=(FsFile&& other) noexcept;
 
   bool open(const char* path, oflag_t flags = O_RDONLY);
-  void close();
+  // Returns bool: HalFile::close() forwards the result straight through.
+  bool close();
   bool isOpen() const { return fd >= 0 || dir != nullptr; }
   explicit operator bool() const { return isOpen(); }
 
@@ -60,8 +61,21 @@ class FsFile : public Stream {
   bool seekEnd(int64_t delta = 0);
   uint64_t position();
   uint64_t size();
+  // SdFat's own name for the same thing; HalStorage uses this spelling.
+  uint64_t fileSize() { return size(); }
+  uint32_t available32() { return static_cast<uint32_t>(available()); }
   bool truncate(uint64_t length);
-  void rewind() { seek(0); }
+  // SdFat lets an open file rename itself; POSIX renames by path, so the open
+  // handle's own path is what moves.
+  bool rename(const char* newPath);
+  // SdFat's newer API returns a bool; HalStorage checks it.
+  bool rewind() { return seek(0); }
+  // Arduino's File spells directory iteration differently, and HalStorage uses
+  // that spelling.
+  // void, matching HalFile::rewindDirectory(), whose forwarding macro returns
+  // whatever this returns.
+  void rewindDirectory();
+  FsFile openNextFile(oflag_t flags = O_RDONLY);
 
   bool isDirectory() const { return dir != nullptr; }
   bool isDir() const { return isDirectory(); }

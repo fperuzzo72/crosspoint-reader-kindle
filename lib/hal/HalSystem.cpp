@@ -1,3 +1,14 @@
+// Panic capture for the ESP32 targets, where a crash resets the chip and the
+// only way to report it afterwards is to stash a stack walk in RTC_NOINIT
+// memory first.
+//
+// The Kindle has HalSystemKindle.cpp instead: a crashing Linux process does
+// not take the device with it, so the kernel and the launching scriptlet
+// already collect better evidence than this could.
+#include <BoardConfig.h>
+
+#if !FREEINK_DEVICE_KINDLE
+
 #include "HalSystem.h"
 
 #include <string>
@@ -206,3 +217,5 @@ bool isRebootFromPanic() {
 }
 
 }  // namespace HalSystem
+
+#endif  // !FREEINK_DEVICE_KINDLE

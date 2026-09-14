@@ -95,6 +95,12 @@ inline void digitalWrite(uint8_t, uint8_t) {}
 inline int digitalRead(uint8_t) { return LOW; }
 inline int analogRead(uint8_t) { return 0; }
 inline uint32_t analogReadMilliVolts(uint8_t) { return 0; }
+
+// Clock speed. Reported as a plausible constant because callers use it for
+// diagnostics and for scaling busy-waits, not for timing correctness; the i.MX6
+// in this device runs at 1 GHz.
+inline uint32_t getCpuFrequencyMhz() { return 1000; }
+inline bool setCpuFrequencyMhz(uint32_t) { return false; }
 inline void analogReadResolution(uint8_t) {}
 
 // Timezone configuration goes through the system here; see esp_sntp.h.
