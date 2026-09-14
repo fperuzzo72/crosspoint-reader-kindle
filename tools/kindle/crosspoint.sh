@@ -40,12 +40,36 @@ LOG=/mnt/us/crosspoint-run.log
 
     chmod +x "$BASE/crosspoint" 2>/dev/null
 
+    # Run from RAM, not from the card, and the reason is not speed.
+    #
+    # Plugging in USB unmounts /mnt/us on the device and hands the raw block
+    # device to the host. A running process still has its code pages mapped
+    # from that filesystem: the ones already resident keep working, which is
+    # why reading carried on fine, but the first branch into code that had not
+    # been paged in yet sends the kernel back to the file, where a newly copied
+    # binary now sits at those offsets. It reads another program's bytes and
+    # dies. That is what "opened Settings and it crashed" was.
+    #
+    # Copying to tmpfs first breaks the link: the image being executed is in
+    # RAM and no longer cares what happens to the card.
+    RUN="$BASE/crosspoint"
+    NEED_KB=$(( $(ls -l "$BASE/crosspoint" | awk '{print $5}') / 1024 + 512 ))
+    FREE_KB=$(df -k /tmp 2>/dev/null | tail -1 | awk '{print $4}')
+    if [ -n "$FREE_KB" ] && [ "$FREE_KB" -gt "$NEED_KB" ] && cp "$BASE/crosspoint" /tmp/crosspoint 2>/dev/null; then
+        chmod +x /tmp/crosspoint
+        RUN=/tmp/crosspoint
+        echo "running from tmpfs: need ${NEED_KB}KB, free ${FREE_KB}KB"
+    else
+        echo "running from the card: /tmp has ${FREE_KB:-?}KB free, needed ${NEED_KB}KB"
+        echo "  (replacing the binary while this runs will crash it later)"
+    fi
+
     echo "--- starting ---"
-    if [ -x "$BASE/crosspoint" ]; then
-        "$BASE/crosspoint" &
+    if [ -x "$RUN" ]; then
+        "$RUN" &
     else
         echo "not executable via the vfat mount; going through the loader"
-        /lib/ld-linux.so.3 "$BASE/crosspoint" &
+        /lib/ld-linux.so.3 "$RUN" &
     fi
     pid=$!
     echo "pid: $pid"
@@ -72,6 +96,8 @@ LOG=/mnt/us/crosspoint-run.log
     # is still standing and says what to do. A blank panel with no way back is
     # the one outcome worth ruling out.
     FBINK=/mnt/us/libkh/bin/fbink
+    [ "$RUN" = /tmp/crosspoint ] && rm -f /tmp/crosspoint
+
     echo "--- leaving a message on the panel ---"
     if [ -x "$FBINK" ]; then
         # One call per line, and no empty strings. fbink refuses to print an

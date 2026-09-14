@@ -27,9 +27,12 @@
 #include <HalDisplay.h>
 #include <HalSystem.h>
 
+#include <signal.h>
+#include <ucontext.h>
+#include <unistd.h>
+
 #include <csignal>
 #include <cstdio>
-#include <unistd.h>
 
 // Defined in src/main.cpp, which is shared with every other target.
 void setup();
@@ -41,6 +44,54 @@ volatile sig_atomic_t stopRequested = 0;
 
 void onStop(int) { stopRequested = 1; }
 
+// Say where it died.
+//
+// A crash here produces no core file and no console, and the process simply
+// vanishes: the launcher reports "killed by signal 11" and that is the whole of
+// the evidence. The binary is linked EXEC rather than PIE, so the program
+// counter at the fault is an address in the binary itself, and addr2line
+// against the unstripped build turns it into a file and a line. That is the
+// difference between a bug report and a guess.
+//
+// Written with write(2) and a fixed buffer rather than fprintf: this runs on a
+// corrupted process and must not take a lock or an allocator with it.
+void onCrash(const int sig, siginfo_t* const info, void* const context) {
+  char buf[256];
+  const char* name = sig == SIGSEGV   ? "SIGSEGV"
+                     : sig == SIGBUS  ? "SIGBUS"
+                     : sig == SIGILL  ? "SIGILL"
+                     : sig == SIGFPE  ? "SIGFPE"
+                     : sig == SIGABRT ? "SIGABRT"
+                                      : "signal";
+  unsigned long pc = 0;
+  unsigned long lr = 0;
+  unsigned long sp = 0;
+#if defined(__arm__)
+  if (context != nullptr) {
+    const auto* uc = static_cast<const ucontext_t*>(context);
+    pc = uc->uc_mcontext.arm_pc;
+    lr = uc->uc_mcontext.arm_lr;
+    sp = uc->uc_mcontext.arm_sp;
+  }
+#else
+  (void)context;
+#endif
+  int n = std::snprintf(buf, sizeof(buf),
+                        "\n[kindle] CRASH %s at fault address %p\n"
+                        "[kindle]   pc=0x%08lx lr=0x%08lx sp=0x%08lx\n"
+                        "[kindle]   resolve with: arm-kindlepw2-linux-gnueabi-addr2line -Cfe "
+                        "build/kindle/link/crosspoint 0x%08lx 0x%08lx\n",
+                        name, info != nullptr ? info->si_addr : nullptr, pc, lr, sp, pc, lr);
+  if (n > 0) {
+    ssize_t ignored = write(STDERR_FILENO, buf, static_cast<size_t>(n));
+    (void)ignored;
+  }
+  // Default handling, so the launcher still reports death by signal and the
+  // exit status keeps meaning what it always meant.
+  std::signal(sig, SIG_DFL);
+  raise(sig);
+}
+
 }  // namespace
 
 int main() {
@@ -50,6 +101,14 @@ int main() {
   std::signal(SIGPIPE, SIG_IGN);
   std::signal(SIGINT, onStop);
   std::signal(SIGTERM, onStop);
+
+  struct sigaction crashAction{};
+  crashAction.sa_sigaction = onCrash;
+  crashAction.sa_flags = SA_SIGINFO;
+  sigemptyset(&crashAction.sa_mask);
+  for (const int sig : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) {
+    sigaction(sig, &crashAction, nullptr);
+  }
 
   if (chdir("/mnt/us") != 0) {
     // Not fatal: a development run from elsewhere should still start, and
