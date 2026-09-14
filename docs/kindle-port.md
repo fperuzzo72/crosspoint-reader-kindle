@@ -387,6 +387,46 @@ the same terms. Work that is merely backgrounded is fine; anything relying on
 priority for correctness is not.
 
 
+## Does it link?
+
+The census answers "would this file compile", which is weaker than it sounds.
+A tree can be entirely valid syntax and still have nothing to link, because a
+file that fails to compile takes its symbols with it and every caller of them
+surfaces as an undefined reference. `tools/kindle/trylink.sh` asks the harder
+question.
+
+| After | Undefined references |
+| --- | --- |
+| first attempt, HAL still ESP32 | 255 |
+| HalDisplay and HalGPIO wired to the Kindle backends | 197 |
+| the whole HAL compiling | 152 |
+| MappedInputManager, PersistableStore, third-party C in the link | 122 |
+| panel drivers excluded, expat configured | **92** |
+
+The count falls in steps because each drop is a FILE or a subtree starting to
+compile, not a symbol being defined. The largest single step came from
+excluding `FreeInkDisplay/src` entirely: those are the PanelDriver
+implementations and the `EpdBus` they talk through, and on this target
+HalDisplay bypasses all of it, so compiling them only produced objects
+referencing a bus that cannot exist here.
+
+### What the remaining 92 are waiting on
+
+Every one of them traces to a specific file that does not compile:
+
+| Blocked on | Files |
+| --- | --- |
+| `WebSocketsServer.h` | `ActivityManager`, `CrossPointWebServer`, `CalibreConnectActivity`, `CrossPointWebServerActivity` |
+| `mbedtls/*` | `ObfuscationUtils`, `FirmwareFlasher` |
+| `PNGdec.h`, `JPEGDEC.h`, `tjpgd.h` | the image converters, `SleepActivity`, `ImageRenderer` |
+| `esp_crt_bundle.h` | `HttpDownloader` |
+| `SDCardManager` | `HalStorage`, which still reaches for the SD abstraction |
+
+`ActivityManager` is the one to fix first, and not because it is hardest: it
+defines `RenderLock` and the activity navigation the whole UI calls, so it
+alone accounts for a large share of the remaining references.
+
+
 ## Two C++ traps worth naming
 
 Both were self-inflicted and both compile silently wrong elsewhere, so they are
@@ -396,6 +436,15 @@ recorded rather than quietly fixed.
 its own members: shutting the listening socket called the member with an int.
 The fix is qualification, and the lesson is that a method named after a libc
 function shadows it for the whole class.
+
+A third, subtler than both: swapping `InputManager.h` for `KindleTouch.h` in
+`HalGPIO.h` dropped a **transitive** include of `BoardConfig.h` that nobody had
+to think about before. Without it `FREEINK_CAP_TOUCH` evaluated to 0 wherever
+that header was reached first, which silently removed the touch half of
+`MappedInputManager`'s DECLARATIONS while its definitions stayed. The compiler
+then reported "no declaration matches" at the definition of a method whose
+declaration it had been told not to read. Nothing in the message pointed at an
+include.
 
 `WiFiClient`, `NetworkUdp` and `FsFile` override `write(uint8_t)` and
 `write(const uint8_t*, size_t)`, which **hides the inherited

@@ -101,12 +101,22 @@ if(CROSSPOINT_BUILD_READER)
   )
   # Third-party trees carry their own build rules and their own C dialects.
   list(FILTER READER_SOURCES EXCLUDE REGEX "/(expat|miniz|uzlib)/")
+  # The panel driver stack talks to an SPI bus this target does not have;
+  # HalDisplay bypasses all of it. Compiling it only yields objects referencing
+  # an EpdBus that cannot exist here.
+  list(FILTER READER_SOURCES EXCLUDE REGEX "FreeInkDisplay/src/")
+
+  # expat is configured by defines rather than a config header.
+  file(GLOB EXPAT_SOURCES ${REPO_ROOT}/lib/expat/*.c)
+  add_library(crosspoint_expat STATIC ${EXPAT_SOURCES})
+  target_include_directories(crosspoint_expat PUBLIC ${REPO_ROOT}/lib/expat)
+  target_compile_definitions(crosspoint_expat PRIVATE XML_GE=0 XML_CONTEXT_BYTES=1024)
 
   add_executable(crosspoint
     ${READER_SOURCES}
     ${REPO_ROOT}/tools/kindle/main_kindle.cpp
   )
-  target_link_libraries(crosspoint PRIVATE crosspoint_kindle_platform)
+  target_link_libraries(crosspoint PRIVATE crosspoint_kindle_platform crosspoint_expat)
 endif()
 
 # --- on-device tools --------------------------------------------------------
