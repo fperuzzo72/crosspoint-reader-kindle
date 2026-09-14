@@ -14,6 +14,12 @@
 #include "../ArduinoCompat.h"
 // The real core's umbrella header brings Serial with it, and 24 files in the
 // tree rely on that rather than including HardwareSerial.h themselves.
+// The ESP32 Arduino core builds on FreeRTOS and exposes it through this
+// header; code written against that core calls vTaskDelay without including
+// anything. Dropping it would break files that never named FreeRTOS at all.
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "HardwareSerial.h"
 #include "Print.h"
 #include "Stream.h"

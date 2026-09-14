@@ -2,6 +2,7 @@
 // rather than the real SdFat.
 
 #include <fcntl.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -274,4 +275,38 @@ FsFile FsFile::openNextFile(const oflag_t flags) {
   // An exhausted directory yields a closed file, which is how the caller's
   // `while (file)` loop terminates.
   return entry;
+}
+
+// --- capacity ---------------------------------------------------------------
+
+void SdFs::setVolumePath(const char* path) {
+  if (path != nullptr) {
+    std::snprintf(volumePath, sizeof(volumePath), "%s", path);
+  }
+}
+
+uint64_t SdFs::clusterCount() const {
+  struct statvfs st {};
+  if (statvfs(volumePath, &st) != 0) {
+    return 0;
+  }
+  return static_cast<uint64_t>(st.f_blocks);
+}
+
+uint64_t SdFs::freeClusterCount() const {
+  struct statvfs st {};
+  if (statvfs(volumePath, &st) != 0) {
+    return 0;
+  }
+  // f_bavail, not f_bfree: what an unprivileged process can actually use, which
+  // is what the user is being shown.
+  return static_cast<uint64_t>(st.f_bavail);
+}
+
+uint32_t SdFs::bytesPerCluster() const {
+  struct statvfs st {};
+  if (statvfs(volumePath, &st) != 0) {
+    return 0;
+  }
+  return static_cast<uint32_t>(st.f_frsize != 0 ? st.f_frsize : st.f_bsize);
 }

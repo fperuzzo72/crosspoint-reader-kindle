@@ -26,6 +26,10 @@ class Print {
   size_t write(const char* s);
 
   size_t print(const char* s);
+  // Arduino's Print takes String by const ref, and callers rely on it; without
+  // this overload a print(someString) finds no match at all.
+  size_t print(const String& s);
+  size_t println(const String& s);
   size_t print(char c) { return write(static_cast<uint8_t>(c)); }
   size_t print(int v);
   size_t print(unsigned v);

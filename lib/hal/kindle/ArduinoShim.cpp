@@ -43,6 +43,8 @@ size_t Print::write(const char* s) {
 }
 
 size_t Print::print(const char* s) { return write(s); }
+size_t Print::print(const String& s) { return write(reinterpret_cast<const uint8_t*>(s.c_str()), s.length()); }
+size_t Print::println(const String& s) { return print(s) + println(); }
 size_t Print::print(const int v) { return printf("%d", v); }
 size_t Print::print(const unsigned v) { return printf("%u", v); }
 size_t Print::print(const long v) { return printf("%ld", v); }

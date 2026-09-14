@@ -17,6 +17,7 @@
 
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -96,6 +97,9 @@ class FsFile : public Stream {
 // The volume. SdFat has several spellings of this depending on filesystem;
 // they are all the same thing here, because the kernel already mounted it.
 class SdFs {
+ private:
+  char volumePath[256] = "/mnt/us";
+
  public:
   // The ESP32 targets pass a bus config; there is no bus here. Accepting and
   // ignoring it keeps the call sites unchanged.
@@ -113,9 +117,25 @@ class SdFs {
   bool open(FsFile* file, const char* path, oflag_t flags = O_RDONLY) { return file->open(path, flags); }
   FsFile open(const char* path, oflag_t flags = O_RDONLY);
 
-  // Capacity, in the units SdFat reports them.
-  uint64_t clusterCount() const { return 0; }
-  uint32_t bytesPerCluster() const { return 0; }
+  // Card-level error diagnostics. SdFat reports why an SPI transaction to the
+  // card failed; there is no card and no SPI here, so there is never an error
+  // to report and these answer zero. The log line that prints them stays
+  // truthful: it says no error, because there was none.
+  uint8_t sdErrorCode() const { return 0; }
+  uint8_t sdErrorData() const { return 0; }
+
+  // Capacity, in the units SdFat reports them. Implemented over statvfs rather
+  // than returned as zero: CrossPoint shows free space to the user, and zero
+  // would read as a full card. There are no clusters here, so a filesystem
+  // block is reported as the cluster and the arithmetic the callers do
+  // (count * bytesPerCluster) comes out right.
+  uint64_t clusterCount() const;
+  uint64_t freeClusterCount() const;
+  uint32_t bytesPerCluster() const;
+
+  // Which filesystem the capacity figures describe. /mnt/us is where a Kindle
+  // keeps everything a reader cares about.
+  void setVolumePath(const char* path);
 };
 
 // SDCardManager names the volume type directly.
