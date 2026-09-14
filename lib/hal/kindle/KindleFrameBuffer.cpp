@@ -148,6 +148,13 @@ bool KindleFrameBuffer::stageFrame(const uint8_t* frame) {
     waitComplete();
   }
   blit(frame);
+  // Record even though no waveform follows. The sample answers "is what WE put
+  // in panel memory still there", and staging is us putting something there:
+  // without this, the window between staging a grayscale base and committing
+  // its planes looks exactly like an outside writer, and the repaint it
+  // provokes stages again. The log showed that loop as repainting (1) over and
+  // over, each repaint sticking and then immediately appearing to be undone.
+  rememberPanelContent();
   return true;
 }
 
@@ -160,6 +167,7 @@ bool KindleFrameBuffer::stageGrayOverlay(const uint8_t* lsbPlane, const uint8_t*
   }
   overlayGrayPlanesOnGray8(lsbPlane, msbPlane, fbMem, panelWidth, panelHeight,
                            static_cast<uint16_t>(panelWidth / 8), stride);
+  rememberPanelContent();
   return true;
 }
 
