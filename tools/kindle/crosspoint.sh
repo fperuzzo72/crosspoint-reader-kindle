@@ -59,7 +59,11 @@ LOG=/mnt/us/crosspoint-run.log
     # Copying to tmpfs first breaks the link: the image being executed is in
     # RAM and no longer cares what happens to the card.
     RUN="$BASE/crosspoint"
-    NEED_KB=$(( $(ls -l "$BASE/crosspoint" | awk '{print $5}') / 1024 + 512 ))
+    # The margin is deliberately fat. /tmp is RAM that the Kindle's own
+    # framework uses, and taking 3 MB of a small tmpfs to save this process a
+    # hazard would be trading our problem for the system's. If there is not
+    # room to spare, run from the card and say so.
+    NEED_KB=$(( $(ls -l "$BASE/crosspoint" | awk '{print $5}') / 1024 + 6144 ))
     FREE_KB=$(df -k /tmp 2>/dev/null | tail -1 | awk '{print $4}')
     if [ -n "$FREE_KB" ] && [ "$FREE_KB" -gt "$NEED_KB" ] && cp "$BASE/crosspoint" /tmp/crosspoint 2>/dev/null; then
         chmod +x /tmp/crosspoint
