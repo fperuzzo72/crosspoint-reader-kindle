@@ -74,18 +74,22 @@ EpdFont notoserif12ItalicFont(&notoserif_12_italic);
 EpdFont notoserif12BoldItalicFont(&notoserif_12_bolditalic);
 EpdFontFamily notoserif12FontFamily(&notoserif12RegularFont, &notoserif12BoldFont, &notoserif12ItalicFont,
                                     &notoserif12BoldItalicFont);
+#if !CROSSPOINT_OMIT_LARGE_READER_FONTS
 EpdFont notoserif16RegularFont(&notoserif_16_regular);
 EpdFont notoserif16BoldFont(&notoserif_16_bold);
 EpdFont notoserif16ItalicFont(&notoserif_16_italic);
 EpdFont notoserif16BoldItalicFont(&notoserif_16_bolditalic);
 EpdFontFamily notoserif16FontFamily(&notoserif16RegularFont, &notoserif16BoldFont, &notoserif16ItalicFont,
                                     &notoserif16BoldItalicFont);
+#endif
+#if !CROSSPOINT_OMIT_LARGE_READER_FONTS
 EpdFont notoserif18RegularFont(&notoserif_18_regular);
 EpdFont notoserif18BoldFont(&notoserif_18_bold);
 EpdFont notoserif18ItalicFont(&notoserif_18_italic);
 EpdFont notoserif18BoldItalicFont(&notoserif_18_bolditalic);
 EpdFontFamily notoserif18FontFamily(&notoserif18RegularFont, &notoserif18BoldFont, &notoserif18ItalicFont,
                                     &notoserif18BoldItalicFont);
+#endif
 
 EpdFont notosans12RegularFont(&notosans_12_regular);
 EpdFont notosans12BoldFont(&notosans_12_bold);
@@ -99,18 +103,22 @@ EpdFont notosans14ItalicFont(&notosans_14_italic);
 EpdFont notosans14BoldItalicFont(&notosans_14_bolditalic);
 EpdFontFamily notosans14FontFamily(&notosans14RegularFont, &notosans14BoldFont, &notosans14ItalicFont,
                                    &notosans14BoldItalicFont);
+#if !CROSSPOINT_OMIT_LARGE_READER_FONTS
 EpdFont notosans16RegularFont(&notosans_16_regular);
 EpdFont notosans16BoldFont(&notosans_16_bold);
 EpdFont notosans16ItalicFont(&notosans_16_italic);
 EpdFont notosans16BoldItalicFont(&notosans_16_bolditalic);
 EpdFontFamily notosans16FontFamily(&notosans16RegularFont, &notosans16BoldFont, &notosans16ItalicFont,
                                    &notosans16BoldItalicFont);
+#endif
+#if !CROSSPOINT_OMIT_LARGE_READER_FONTS
 EpdFont notosans18RegularFont(&notosans_18_regular);
 EpdFont notosans18BoldFont(&notosans_18_bold);
 EpdFont notosans18ItalicFont(&notosans_18_italic);
 EpdFont notosans18BoldItalicFont(&notosans_18_bolditalic);
 EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, &notosans18ItalicFont,
                                    &notosans18BoldItalicFont);
+#endif
 
 #endif  // OMIT_FONTS
 
@@ -324,13 +332,17 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(NOTOSERIF_14_FONT_ID, notoserif14FontFamily);
 #ifndef OMIT_FONTS
   renderer.insertFont(NOTOSERIF_12_FONT_ID, notoserif12FontFamily);
+#if !CROSSPOINT_OMIT_LARGE_READER_FONTS
   renderer.insertFont(NOTOSERIF_16_FONT_ID, notoserif16FontFamily);
   renderer.insertFont(NOTOSERIF_18_FONT_ID, notoserif18FontFamily);
+#endif
 
   renderer.insertFont(NOTOSANS_12_FONT_ID, notosans12FontFamily);
   renderer.insertFont(NOTOSANS_14_FONT_ID, notosans14FontFamily);
+#if !CROSSPOINT_OMIT_LARGE_READER_FONTS
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
+#endif
 #endif  // OMIT_FONTS
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);

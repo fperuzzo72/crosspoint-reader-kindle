@@ -13,7 +13,14 @@
 
 // The built-in Noto Serif / Noto Sans families are compiled in at exactly these
 // point sizes (see the global font objects in main.cpp).
+// The sizes the built-in families are compiled at, and therefore the ones the
+// UI may offer. A build that omits the large ones must not list them, or the
+// picker offers a size that resolves to nothing.
+#if CROSSPOINT_OMIT_LARGE_READER_FONTS
+inline constexpr uint8_t BUILTIN_READER_POINT_SIZES[] = {12, 14};
+#else
 inline constexpr uint8_t BUILTIN_READER_POINT_SIZES[] = {12, 14, 16, 18};
+#endif
 
 // Point sizes selectable for the active reader font, ascending: the SD family's
 // installed sizes when `sdFamilyName` names one the registry knows, otherwise

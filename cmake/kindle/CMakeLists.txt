@@ -78,6 +78,10 @@ endif()
 target_compile_definitions(crosspoint_kindle_platform PUBLIC
   FREEINK_DEVICE_KINDLE=1
   CROSSPOINT_VERSION="${CROSSPOINT_VERSION}"
+  # See tools/kindle/trylink.sh: the 16 and 18 point reader fonts are larger
+  # than this 600x800 panel uses well, and their glyph data is most of the
+  # binary.
+  CROSSPOINT_OMIT_LARGE_READER_FONTS=1
 )
 target_compile_options(crosspoint_kindle_platform PRIVATE -Wall -Wextra)
 

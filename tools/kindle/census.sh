@@ -38,6 +38,13 @@ cat > "$OUT/census-defines.h" <<'DEFS'
 #ifndef ARDUINOJSON_ENABLE_ARDUINO_STRING
 #define ARDUINOJSON_ENABLE_ARDUINO_STRING 1
 #endif
+// This panel is 600x800 at 167ppi, smaller than the boards CrossPoint was
+// built for, and the 16 and 18 point reader fonts are larger than anything
+// that fits usefully on it. Omitting them also takes their glyph data out of
+// the binary, which is most of its size.
+#ifndef CROSSPOINT_OMIT_LARGE_READER_FONTS
+#define CROSSPOINT_OMIT_LARGE_READER_FONTS 1
+#endif
 #ifndef CROSSPOINT_VERSION
 #define CROSSPOINT_VERSION "kindle-dev"
 #endif
