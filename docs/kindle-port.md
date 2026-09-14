@@ -278,6 +278,54 @@ rebooting the device are the same act; here they are not, and rebooting a
 Kindle to restart an app would be both wrong and slow.
 
 
+## Where the build stands
+
+`build/kindle/census.sh` runs the cross-compiler over every source in `src/`,
+`lib/` and the SDK. It is the port's compass: attack whatever cause appears
+most often, re-measure, repeat.
+
+| After | Compiling | Dominant remaining cause |
+| --- | --- | --- |
+| the device profile landed | 25% (58/228) | `Print.h` (59 files) |
+| Print, Serial, SPI, Wire, FreeRTOS | 35% (81/229) | SdFat's `FsApiConstants.h` (111 files) |
+| SdFat over POSIX, generated I18nKeys | 68% (158/231) | scattered |
+| `oflag_t`, `O_WRITE`, ESP stubs, String fix | **73% (169/231)** | networking (15 files) |
+
+Two of those steps are worth remembering as method rather than as results. The
+jump from 35% to 68% came from a single header: 111 files could not compile
+without SdFat, and not one of them cared about SD cards. And the `String`
+ambiguity that cost six files was self-inflicted, an implicit
+`String(std::string)` this shim had no business offering, since Arduino's
+String has no such constructor.
+
+### What is left, by cause
+
+- **Networking, 15 files.** `WiFi.h`, `WiFiClient.h`, `NetworkUdp.h`. The
+  Kindle's Wi-Fi is already up and managed by the system, so this is sockets
+  work, not driver work, but it is the largest single remaining item.
+- **Third-party headers**: `PNGdec.h`, `JPEGDEC.h`, `tjpgd.h`, `MD5Builder.h`,
+  `base64.h`, `qrcode.h`. All portable; none vendored yet.
+- **`uzlib.h`, 6 files.** Already in `lib/uzlib`; an include-path fix.
+- **A long tail** of one- and two-file causes: `DRAM_ATTR`, `TwoWire::setTimeOut`,
+  `spi_flash_mmap.h`.
+
+None of these is a portability problem. They are all plumbing.
+
+### Honest limits of the shims
+
+`SPI.h` and `Wire.h` are deliberately inert. Code that genuinely needs to move
+bytes over a bus will appear to succeed and transfer zeros. That is the right
+trade here, because nothing on this target has a bus to talk to, but it is a
+trap for any future profile that does.
+
+The FreeRTOS shims are the opposite: real pthreads, real mutexes, real
+condition-variable queues, because the tree uses them for actual concurrency
+and a stub would produce races rather than merely missing hardware. What does
+not carry across is priority and core affinity, which Linux does not offer on
+the same terms. Work that is merely backgrounded is fine; anything relying on
+priority for correctness is not.
+
+
 ## State
 
 Done:
@@ -308,7 +356,12 @@ Two things the first cross-compile turned up, both the target's age showing:
   then asked to exec the loader rather than the file on the card.
 
 The display backend **runs on the device** and its output is verified by
-reading panel memory back, not assumed. See "Measured on device" above.
+reading panel memory back, not assumed. So does touch: `touchtest` classified
+9 taps, 2 long presses and 14 swipes in one session, with both long presses
+firing at 572 ms (the 550 ms threshold plus one 30 ms poll), which is the
+timer doing exactly the job the silent panel will not do for it.
+
+See "Measured on device" above.
 
 One lesson from getting there is worth keeping. The first on-device run
 reported OK while every blit silently failed: `fbink_print_raw_data` sits
@@ -323,11 +376,11 @@ Next, roughly in order:
    questions in one tap: real panel geometry and rotation, whether 600x800 is
    what the kernel reports, whether the waveform mapping looks right, and what
    each refresh actually costs in milliseconds.
-2. `HalStorage` on POSIX, `HalClock` on `clock_gettime`, `HalSystem` on
-   `sysinfo`.
-3. `HalGPIO` on evdev, mapping touch into `MappedInputManager`.
-4. Replace the `WiFi` surface (177 references) with sockets; the Kindle's own
-   Wi-Fi is already up and managed by the system.
-5. A build system for the target. `platformio.ini` is ESP32-only, so the
-   Kindle build needs its own entry point, most likely CMake reusing the
-   existing host-test conventions.
+2. Close the remaining 27%, worst cause first. Networking is the big one.
+3. Wire `KindleTouchDevice` into `MappedInputManager` so the app sees gestures
+   through the interface it already has, rather than through a second path.
+4. `HalStorage`, `HalClock`, `HalSystem`, `HalPowerManager` on POSIX. These are
+   mechanical now that SdFat presents a filesystem.
+5. A build system for the target: `platformio.ini` is ESP32-only, so this needs
+   its own entry point, most likely CMake reusing the host-test conventions.
+   See `docs/kindle-build.md` for how the pieces are built today.

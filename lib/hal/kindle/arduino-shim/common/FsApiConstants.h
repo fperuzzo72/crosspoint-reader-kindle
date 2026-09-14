@@ -17,6 +17,12 @@ using oflag_t = int;
 #define O_AT_END 0x4000000
 #endif
 
+#ifndef O_WRITE
+// SdFat's own spellings for the two common modes.
+#define O_WRITE O_WRONLY
+#define O_READ O_RDONLY
+#endif
+
 #ifndef FILE_READ
 #define FILE_READ O_RDONLY
 #define FILE_WRITE (O_RDWR | O_CREAT | O_AT_END)

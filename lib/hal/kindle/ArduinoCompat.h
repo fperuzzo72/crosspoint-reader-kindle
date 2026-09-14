@@ -33,7 +33,11 @@ class String {
  public:
   String() = default;
   String(const char* s) : buf(s != nullptr ? s : "") {}
-  String(const std::string& s) : buf(s) {}
+  // Explicit on purpose: an implicit conversion here made calls such as
+  // hasEpubExtension(std::string) ambiguous between the String and const char*
+  // overloads. Arduino's String has no std::string constructor at all, so
+  // requiring the cast costs the tree nothing and matches upstream.
+  explicit String(const std::string& s) : buf(s) {}
   explicit String(char c) : buf(1, c) {}
   explicit String(int v) : buf(std::to_string(v)) {}
   explicit String(unsigned v) : buf(std::to_string(v)) {}

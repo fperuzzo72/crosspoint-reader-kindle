@@ -16,6 +16,7 @@
 #include "arduino-shim/SPI.h"
 #include "arduino-shim/Wire.h"
 #include "arduino-shim/esp_heap_caps.h"
+#include "arduino-shim/esp_rom_crc.h"
 #include "arduino-shim/freertos/queue.h"
 #include "arduino-shim/freertos/semphr.h"
 #include "arduino-shim/freertos/task.h"
@@ -328,4 +329,20 @@ void xQueueReset(const QueueHandle_t q) {
   q->count = q->head = q->tail = 0;
   pthread_cond_broadcast(&q->notFull);
   pthread_mutex_unlock(&q->lock);
+}
+
+// ------------------------------------------------------------------- CRC ---
+
+uint32_t esp_rom_crc32_le(uint32_t crc, const uint8_t* buf, const uint32_t len) {
+  // Standard reflected CRC-32 (the zlib/ESP-ROM polynomial), computed bitwise.
+  // No table: this validates occasional stored blobs, not a hot path, and a
+  // 1 KB table would cost more than it saves here.
+  crc = ~crc;
+  for (uint32_t i = 0; i < len; ++i) {
+    crc ^= buf[i];
+    for (int bit = 0; bit < 8; ++bit) {
+      crc = (crc >> 1) ^ (0xEDB88320U & (~((crc & 1U) - 1U)));
+    }
+  }
+  return ~crc;
 }
