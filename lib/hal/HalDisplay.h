@@ -1,7 +1,20 @@
 #pragma once
 #include <Arduino.h>
 #include <BoardConfig.h>
+#if FREEINK_DEVICE_KINDLE
+// The Kindle bypasses FreeInkDisplay entirely rather than adding a driver to
+// it: that stack exists to drive a raw panel over SPI/i80, and here the kernel
+// EPDC owns the panel. Including EInkDisplay.h would drag the whole PanelDriver
+// and EpdBus tree into a build that can never use it, which is where 251 of the
+// undefined symbols in the first link attempt came from.
+#include "kindle/KindleFrameBuffer.h"
+// The grayscale descriptor types still come from the SDK: they are the HAL's
+// vocabulary, not the panel driver's, and this header carries no Arduino or
+// bus dependency of its own.
+#include <GrayscaleCapabilities.h>
+#else
 #include <EInkDisplay.h>
+#endif
 
 class HalDisplay {
  public:
@@ -37,8 +50,13 @@ class HalDisplay {
   void begin(bool seamless = false);
 
   // Display dimensions
+#if FREEINK_DEVICE_KINDLE
+  static constexpr uint16_t DISPLAY_WIDTH = crosspoint::kindle::KT3_WIDTH;
+  static constexpr uint16_t DISPLAY_HEIGHT = crosspoint::kindle::KT3_HEIGHT;
+#else
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
   static constexpr uint16_t DISPLAY_HEIGHT = EInkDisplay::DISPLAY_HEIGHT;
+#endif
   static constexpr uint16_t DISPLAY_WIDTH_BYTES = DISPLAY_WIDTH / 8;
   static constexpr uint32_t BUFFER_SIZE = DISPLAY_WIDTH_BYTES * DISPLAY_HEIGHT;
 
@@ -127,7 +145,17 @@ class HalDisplay {
   uint32_t getBufferSize() const;
 
  private:
+#if FREEINK_DEVICE_KINDLE
+  crosspoint::kindle::KindleFrameBuffer panel;
+  // CrossPoint composes into its own 1bpp buffer on every target; on the ESP32
+  // that buffer lives inside EInkDisplay. Here it is ours, because the panel
+  // half only ever receives a finished frame.
+  uint8_t* frameBuffer = nullptr;
+  uint8_t* lentStorage = nullptr;
+  bool inverted = false;
+#else
   EInkDisplay einkDisplay;
+#endif
 };
 
 extern HalDisplay display;

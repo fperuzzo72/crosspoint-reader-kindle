@@ -41,6 +41,8 @@ class WiFiClient : public Client {
   void flush() override;
 
   void setNoDelay(bool enable);
+  void setConnectionTimeout(uint32_t ms);
+  void setTimeout(uint32_t seconds) { Stream::setTimeout(seconds * 1000UL); }
 
  private:
   int sock = -1;

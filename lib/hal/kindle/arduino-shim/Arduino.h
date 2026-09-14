@@ -20,9 +20,16 @@
 
 // The core pulls these in for its users; code written against it assumes they
 // are already there.
+// The real core's umbrella header drags most of the C library in with it, and
+// the tree leans on that: fabsf, assert, va_start and round are all used
+// without their own includes.
+#include <cassert>
+#include <cmath>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 // Arduino spells these in its own vocabulary. A handful of SDK headers use
@@ -40,6 +47,8 @@ using word = uint16_t;
 #define INPUT 0
 #define OUTPUT 1
 #define INPUT_PULLUP 2
+#define INPUT_PULLDOWN 3
+#define OUTPUT_OPEN_DRAIN 4
 #endif
 
 // PROGMEM is an AVR storage qualifier that the ESP32 core already reduces to
@@ -85,3 +94,9 @@ inline void pinMode(uint8_t, uint8_t) {}
 inline void digitalWrite(uint8_t, uint8_t) {}
 inline int digitalRead(uint8_t) { return LOW; }
 inline int analogRead(uint8_t) { return 0; }
+inline uint32_t analogReadMilliVolts(uint8_t) { return 0; }
+inline void analogReadResolution(uint8_t) {}
+
+// Timezone configuration goes through the system here; see esp_sntp.h.
+inline void configTzTime(const char*, const char*, const char* = nullptr, const char* = nullptr) {}
+inline void configTime(long, int, const char*, const char* = nullptr, const char* = nullptr) {}

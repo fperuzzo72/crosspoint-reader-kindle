@@ -1,3 +1,12 @@
+// The InputManager-backed HalGPIO, used by every ESP32 target.
+//
+// The Kindle has its own in HalGPIOKindle.cpp: no ADC button ladder, no I2C
+// touch controller, no wake GPIOs. Touch comes from evdev and sleep is the
+// kernel's business.
+#include <BoardConfig.h>
+
+#if !FREEINK_DEVICE_KINDLE
+
 #include <BatteryMonitor.h>
 #include <HalGPIO.h>
 #include <Logging.h>
@@ -299,3 +308,5 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   }
   return WakeupReason::Other;
 }
+
+#endif  // !FREEINK_DEVICE_KINDLE

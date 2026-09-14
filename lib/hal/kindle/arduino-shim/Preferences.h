@@ -22,5 +22,12 @@ class Preferences {
   uint32_t getUInt(const char*, uint32_t defaultValue = 0) { return defaultValue; }
   size_t putBool(const char*, bool) { return 0; }
   bool getBool(const char*, bool defaultValue = false) { return defaultValue; }
+  size_t putUChar(const char*, uint8_t) { return 0; }
+  uint8_t getUChar(const char*, uint8_t defaultValue = 0) { return defaultValue; }
+  size_t putInt(const char*, int32_t) { return 0; }
+  int32_t getInt(const char*, int32_t defaultValue = 0) { return defaultValue; }
+  size_t putBytes(const char*, const void*, size_t) { return 0; }
+  size_t getBytes(const char*, void*, size_t) { return 0; }
+  size_t getBytesLength(const char*) { return 0; }
   bool isKey(const char*) { return false; }
 };

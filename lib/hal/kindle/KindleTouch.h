@@ -135,6 +135,7 @@ class KindleTouchDevice {
   GestureResult update(int timeoutMs = 0);
 
   void suppressContact() { classifier.suppressContact(); }
+  bool isContactDown() const { return classifier.isContactDown(); }
 
  private:
   int fd = -1;

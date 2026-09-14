@@ -13,6 +13,7 @@
 
 #include "arduino-shim/HardwareSerial.h"
 #include "arduino-shim/Print.h"
+#include "arduino-shim/Stream.h"
 #include "arduino-shim/SPI.h"
 #include "arduino-shim/Wire.h"
 #include "arduino-shim/esp_heap_caps.h"
@@ -345,4 +346,78 @@ uint32_t esp_rom_crc32_le(uint32_t crc, const uint8_t* buf, const uint32_t len) 
     }
   }
   return ~crc;
+}
+
+// --------------------------------------------------------------- Stream ---
+
+String Stream::readStringUntil(const char terminator) {
+  String out;
+  for (;;) {
+    const int c = read();
+    if (c < 0 || static_cast<char>(c) == terminator) {
+      break;
+    }
+    out += static_cast<char>(c);
+  }
+  return out;
+}
+
+String Stream::readString() { return readStringUntil('\0'); }
+
+// ---------------------------------------------- recursive / ISR semaphores ---
+
+SemaphoreHandle_t xSemaphoreCreateRecursiveMutex() {
+  auto* m = new pthread_mutex_t;
+  pthread_mutexattr_t attr;
+  pthread_mutexattr_init(&attr);
+  // The point of the recursive variant: the tree takes some of these from a
+  // thread that may already hold them, and a plain mutex deadlocks there.
+  pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+  const int rc = pthread_mutex_init(m, &attr);
+  pthread_mutexattr_destroy(&attr);
+  if (rc != 0) {
+    delete m;
+    return nullptr;
+  }
+  return m;
+}
+
+BaseType_t xSemaphoreTakeRecursive(const SemaphoreHandle_t sem, const TickType_t timeoutTicks) {
+  return xSemaphoreTake(sem, timeoutTicks);
+}
+
+BaseType_t xSemaphoreGiveRecursive(const SemaphoreHandle_t sem) { return xSemaphoreGive(sem); }
+
+BaseType_t xSemaphoreGiveFromISR(const SemaphoreHandle_t sem, BaseType_t* higherPriorityTaskWoken) {
+  // No interrupt context exists here, so this is the ordinary give and no task
+  // is ever reported woken.
+  if (higherPriorityTaskWoken != nullptr) {
+    *higherPriorityTaskWoken = pdFALSE;
+  }
+  return xSemaphoreGive(sem);
+}
+
+BaseType_t xSemaphoreTakeFromISR(const SemaphoreHandle_t sem, BaseType_t* higherPriorityTaskWoken) {
+  if (higherPriorityTaskWoken != nullptr) {
+    *higherPriorityTaskWoken = pdFALSE;
+  }
+  return xSemaphoreTake(sem, 0);
+}
+
+// ------------------------------------------------------- more heap caps ---
+
+size_t heap_caps_get_total_size(uint32_t) {
+  struct sysinfo info {};
+  if (sysinfo(&info) != 0) {
+    return 0;
+  }
+  return static_cast<size_t>(info.totalram) * info.mem_unit;
+}
+
+size_t heap_caps_get_minimum_free_size(uint32_t caps) {
+  // The ESP32 tracks a low-water mark across the run. Nothing here does, so
+  // this reports the CURRENT free size: an over-estimate of the minimum, which
+  // is the safe direction for a caller deciding whether it once ran close to
+  // the edge, since it will not falsely claim a shortage.
+  return heap_caps_get_free_size(caps);
 }

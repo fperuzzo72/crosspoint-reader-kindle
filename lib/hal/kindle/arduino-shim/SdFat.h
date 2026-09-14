@@ -104,6 +104,8 @@ class SdFs {
   uint32_t bytesPerCluster() const { return 0; }
 };
 
+// SDCardManager names the volume type directly.
+using FsVolume = SdFs;
 using SdFat32 = SdFs;
 using SdFat = SdFs;
 using File32 = FsFile;

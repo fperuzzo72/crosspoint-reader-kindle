@@ -485,3 +485,14 @@ int NetworkUdp::read(uint8_t* buf, const size_t size) {
 }
 
 int NetworkUdp::peek() { return rxPos < rxLen ? rxBuf[rxPos] : -1; }
+
+void WiFiClient::setConnectionTimeout(const uint32_t ms) {
+  if (sock < 0) {
+    return;
+  }
+  timeval tv{};
+  tv.tv_sec = static_cast<time_t>(ms / 1000);
+  tv.tv_usec = static_cast<suseconds_t>((ms % 1000) * 1000);
+  setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}

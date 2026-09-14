@@ -1,7 +1,14 @@
 #pragma once
 
 #include <Arduino.h>
+
+#if FREEINK_DEVICE_KINDLE
+// No InputManager here: it drives an ADC button ladder and a touch controller
+// over I2C, neither of which exists on this device. Touch arrives from evdev.
+#include "kindle/KindleTouch.h"
+#else
 #include <InputManager.h>
+#endif
 
 // Display SPI pins (custom pins for XteinkX4, not hardware SPI defaults)
 #define EPD_SCLK 8   // SPI Clock
@@ -39,7 +46,14 @@
 #define QMI8658_WHO_AM_I_VALUE 0x05  // WHO_AM_I expected value
 
 class HalGPIO {
-#if CROSSPOINT_EMULATED == 0
+#if FREEINK_DEVICE_KINDLE
+  crosspoint::kindle::KindleTouchDevice touchDevice;
+  // HalGPIO's touch API is edge-based: update() gathers, the was* accessors
+  // consume. KindleTouchDevice reports one gesture per poll, so the gesture
+  // for this frame is held here between the two.
+  crosspoint::kindle::GestureResult frameGesture;
+  bool touchOpen = false;
+#elif CROSSPOINT_EMULATED == 0
   InputManager inputMgr;
 #endif
 
