@@ -40,6 +40,13 @@ void logf(const char* fmt, ...) {
   va_end(args);
 }
 
+void logBlank() {
+  if (logFile != nullptr) {
+    std::fputc('\n', logFile);
+    std::fflush(logFile);
+  }
+}
+
 int64_t monotonicMs() {
   timespec ts{};
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -109,7 +116,7 @@ int main() {
 
   FBInkState state{};
   fbink_get_state(&cfg, &state);
-  logf("");
+  logBlank();
   logf("--- panel as reported by the kernel ---");
   logf("device codename : %s", state.device_codename);
   logf("device platform : %s", state.device_platform);
@@ -119,14 +126,14 @@ int main() {
   logf("bpp             : %u", state.bpp);
   logf("scanline stride : %u", state.scanline_stride);
   logf("current rotation: %u", state.current_rota);
-  logf("");
+  logBlank();
   logf("this build expects %ux%u at 8bpp", crosspoint::kindle::KT3_WIDTH, crosspoint::kindle::KT3_HEIGHT);
   fbink_close(fbfd);
 
   // --- now the backend itself ----------------------------------------------
   crosspoint::kindle::KindleFrameBuffer fb;
   if (!fb.begin()) {
-    logf("");
+    logBlank();
     logf("RESULT: begin() refused this panel. Compare the numbers above with");
     logf("        KT3_WIDTH/KT3_HEIGHT in lib/hal/kindle/KindleFrameBuffer.h.");
     return 1;
@@ -146,7 +153,41 @@ int main() {
       {"Fast (DU)", crosspoint::kindle::Waveform::Fast},
   };
 
-  logf("");
+  // Prove the pixels landed BEFORE trusting any timing. The first run of this
+  // test reported success while every blit silently failed, because nothing
+  // ever looked at panel memory afterwards. Timings of a paint that did not
+  // happen are worse than no timings: they look like progress.
+  logBlank();
+  logf("--- did the pixels actually land? ---");
+  const bool painted = fb.display(frame, crosspoint::kindle::Waveform::Full);
+  logf("display() returned: %s", painted ? "true" : "false");
+
+  struct Probe {
+    const char* what;
+    uint16_t x;
+    uint16_t y;
+    uint8_t expect;
+  };
+  const Probe probes[] = {
+      {"inside the corner block", 10, 10, crosspoint::kindle::GRAY_BLACK},
+      {"background, clear of the wedge", 400, 400, crosspoint::kindle::GRAY_WHITE},
+      {"right-hand border", static_cast<uint16_t>(fb.width() - 1), 400, crosspoint::kindle::GRAY_BLACK},
+  };
+  bool allGood = painted;
+  for (const auto& p : probes) {
+    const uint8_t got = fb.peekPixel(p.x, p.y);
+    const bool ok = got == p.expect;
+    allGood = allGood && ok;
+    logf("  (%3u,%3u) %-32s got 0x%02X expected 0x%02X  %s", p.x, p.y, p.what, got, p.expect, ok ? "OK" : "WRONG");
+  }
+
+  if (!allGood) {
+    logBlank();
+    logf("RESULT: FAILED. The refresh path may still be fine, but the frame");
+    logf("        never reached panel memory. Timings below are meaningless.");
+  }
+
+  logBlank();
   logf("--- waveform timings (blocking display(), full frame) ---");
   for (const auto& step : steps) {
     const int64_t start = monotonicMs();
@@ -157,7 +198,7 @@ int main() {
   // The async split is the interesting one: if these numbers are not much
   // smaller than the blocking ones above, the EPDC is not actually deferring
   // and displayStart() is lying about it.
-  logf("");
+  logBlank();
   logf("--- async split (displayStart returns, then waitComplete) ---");
   for (const auto& step : steps) {
     const int64_t start = monotonicMs();
@@ -171,9 +212,14 @@ int main() {
   fb.deepSleep();
   fb.end();
 
-  logf("");
-  logf("RESULT: OK. The pattern on screen should be a white page with a 1px");
-  logf("        border, a solid 100x100 block in ONE corner, and a wedge that");
-  logf("        widens downward along that same edge.");
-  return 0;
+  logBlank();
+  if (allGood) {
+    logf("RESULT: OK, and verified by reading panel memory back, not assumed.");
+    logf("        The screen should show a white page with a 1px border, a");
+    logf("        solid 100x100 block in ONE corner, and a wedge widening");
+    logf("        downward along that same edge.");
+  } else {
+    logf("RESULT: FAILED, see the probe results above.");
+  }
+  return allGood ? 0 : 1;
 }

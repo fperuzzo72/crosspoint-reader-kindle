@@ -16,10 +16,13 @@ using crosspoint::kindle::expand1bppToGray8;
 using crosspoint::kindle::GRAY_BLACK;
 using crosspoint::kindle::GRAY_WHITE;
 
+// dstStride defaults to w (rows back to back); pass it explicitly to model the
+// real framebuffer, whose rows are wider than the panel.
 std::vector<uint8_t> expand(const std::vector<uint8_t>& src, const uint16_t w, const uint16_t h,
-                            const uint16_t rowBytes) {
-  std::vector<uint8_t> dst(static_cast<size_t>(w) * h, 0x5A);
-  expand1bppToGray8(src.data(), dst.data(), w, h, rowBytes);
+                            const uint16_t rowBytes, const uint32_t dstStride = 0) {
+  const uint32_t stride = dstStride != 0 ? dstStride : w;
+  std::vector<uint8_t> dst(static_cast<size_t>(stride) * h, 0x5A);
+  expand1bppToGray8(src.data(), dst.data(), w, h, rowBytes, stride);
   return dst;
 }
 
@@ -72,6 +75,29 @@ TEST(KindleGrayExpand, WidthNotAMultipleOfEightIgnoresTrailingPadBits) {
   }
 }
 
+TEST(KindleGrayExpand, DestinationStrideWiderThanThePanelDoesNotShear) {
+  // The KT3 reports a 608-byte scanline stride for a 600px panel, measured on
+  // device. Stepping the destination by width instead of by stride walks every
+  // row 8px further left than the last, which shears the whole image.
+  const std::vector<uint8_t> src = {0xFF,   // row 0: 8 white px
+                                    0x00};  // row 1: 8 black px
+  const uint32_t stride = 12;               // 8 px of panel, 4 bytes of padding
+  const auto out = expand(src, 8, 2, 1, stride);
+
+  ASSERT_EQ(out.size(), 24u);
+  for (size_t i = 0; i < 8; ++i) {
+    EXPECT_EQ(out[i], GRAY_WHITE) << "row 0 px " << i;
+  }
+  // Padding past the panel is not on screen: leave it alone rather than
+  // clearing it, so this stays a pure row-wise write.
+  for (size_t i = 8; i < 12; ++i) {
+    EXPECT_EQ(out[i], 0x5A) << "row 0 padding byte " << i;
+  }
+  for (size_t i = 0; i < 8; ++i) {
+    EXPECT_EQ(out[stride + i], GRAY_BLACK) << "row 1 px " << i;
+  }
+}
+
 TEST(KindleGrayExpand, FullKt3FrameIsCoveredExactly) {
   using crosspoint::kindle::KT3_BUFFER_SIZE;
   using crosspoint::kindle::KT3_HEIGHT;
@@ -86,10 +112,15 @@ TEST(KindleGrayExpand, FullKt3FrameIsCoveredExactly) {
   // sentinel, so an untouched pixel is visible as a hole rather than as
   // whatever the previous frame left in the buffer.
   const std::vector<uint8_t> src(KT3_BUFFER_SIZE, 0xFF);
-  const auto out = expand(src, KT3_WIDTH, KT3_HEIGHT, KT3_WIDTH_BYTES);
+  // 608 is the stride the device actually reports.
+  constexpr uint32_t KT3_STRIDE = 608;
+  const auto out = expand(src, KT3_WIDTH, KT3_HEIGHT, KT3_WIDTH_BYTES, KT3_STRIDE);
 
-  ASSERT_EQ(out.size(), static_cast<size_t>(KT3_WIDTH) * KT3_HEIGHT);
-  EXPECT_EQ(std::count(out.begin(), out.end(), GRAY_WHITE), static_cast<long>(out.size()));
+  ASSERT_EQ(out.size(), static_cast<size_t>(KT3_STRIDE) * KT3_HEIGHT);
+  // Every on-panel pixel white, every padding byte untouched.
+  EXPECT_EQ(std::count(out.begin(), out.end(), GRAY_WHITE), static_cast<long>(KT3_WIDTH) * KT3_HEIGHT);
+  EXPECT_EQ(std::count(out.begin(), out.end(), 0x5A),
+            static_cast<long>(KT3_STRIDE - KT3_WIDTH) * KT3_HEIGHT);
 }
 
 }  // namespace

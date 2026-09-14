@@ -47,12 +47,21 @@ inline constexpr uint8_t GRAY_WHITE = 0xFF;
 //
 // Pure, allocation-free, and hardware-free precisely so it can be tested on
 // the host: it is the one piece of this backend whose correctness does not
-// need a Kindle on the desk. `src` is widthBytes * height bytes; `dst` is
-// width * height bytes. Bits beyond `width` in the final byte of a row are
-// padding and are not emitted, so a width that is not a multiple of 8 stays
-// correct (no Kindle needs that today, but the EpdFont emitter shipped a bug
-// of exactly this shape once).
-void expand1bppToGray8(const uint8_t* src, uint8_t* dst, uint16_t width, uint16_t height, uint16_t srcRowBytes);
+// need a Kindle on the desk.
+//
+// Both sides carry their own row stride, and they genuinely differ: the KT3's
+// framebuffer reports a scanline stride of 608 bytes for a 600px-wide panel
+// (measured on device), so writing rows back to back would shear the image
+// progressively down the screen. `dstRowBytes` is that stride, and the padding
+// bytes past `width` are left untouched rather than cleared, since they are
+// not on the panel.
+//
+// Bits beyond `width` in the final SOURCE byte of a row are padding and are
+// not emitted, so a width that is not a multiple of 8 stays correct (no Kindle
+// needs that today, but the EpdFont emitter shipped a bug of exactly this
+// shape once).
+void expand1bppToGray8(const uint8_t* src, uint8_t* dst, uint16_t width, uint16_t height, uint16_t srcRowBytes,
+                       uint32_t dstRowBytes);
 
 // How hard to drive the panel. Mirrors HalDisplay::RefreshMode so the Kindle
 // HalDisplay can forward its argument straight through.
@@ -84,14 +93,22 @@ class KindleFrameBuffer {
   uint16_t width() const { return panelWidth; }
   uint16_t height() const { return panelHeight; }
 
-  // Blocking paint: expand, blit, refresh, wait for the waveform to finish.
-  void display(const uint8_t* frame, Waveform waveform);
+  // Blocking paint: expand into the mapped framebuffer, refresh, wait for the
+  // waveform to finish. Returns false if the paint could not be issued.
+  bool display(const uint8_t* frame, Waveform waveform);
 
   // Non-blocking paint. Returns true when a waveform is genuinely in flight
-  // and waitComplete() must follow; false when it already finished inline.
+  // and waitComplete() must follow; false when it finished inline OR could not
+  // be issued at all, so check isOpen() rather than reading false as success.
   // The EPDC copies the frame out on submission, so unlike the SPI panels the
   // caller may reuse its framebuffer immediately after this returns.
   bool displayStart(const uint8_t* frame, Waveform waveform);
+
+  // Read one pixel back out of the mapped framebuffer. Only exists so the
+  // smoke test can prove the pixels actually landed: the first run of this
+  // backend reported success while every blit was silently failing, because
+  // nothing ever looked at the panel memory afterwards.
+  uint8_t peekPixel(uint16_t x, uint16_t y) const;
   void waitComplete();
 
   void deepSleep();
@@ -102,9 +119,11 @@ class KindleFrameBuffer {
   int fbfd = -1;
   uint16_t panelWidth = 0;
   uint16_t panelHeight = 0;
+  uint32_t stride = 0;   // bytes per framebuffer row; 608 on the KT3, not 600
+  size_t mapLen = 0;
+  uint8_t* fbMem = nullptr;  // mmap'd /dev/fb0, written directly
   uint32_t pendingMarker = 0;
   bool hasPending = false;
-  uint8_t* gray = nullptr;  // width * height scratch for the expansion
 };
 
 }  // namespace crosspoint::kindle

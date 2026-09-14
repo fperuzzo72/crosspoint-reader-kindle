@@ -10,10 +10,13 @@
 namespace crosspoint::kindle {
 
 void expand1bppToGray8(const uint8_t* src, uint8_t* dst, const uint16_t width, const uint16_t height,
-                       const uint16_t srcRowBytes) {
+                       const uint16_t srcRowBytes, const uint32_t dstRowBytes) {
   for (uint16_t y = 0; y < height; ++y) {
     const uint8_t* row = src + static_cast<size_t>(y) * srcRowBytes;
-    uint8_t* out = dst + static_cast<size_t>(y) * width;
+    // Destination rows step by the framebuffer's stride, which is wider than
+    // the panel (608 vs 600 on the KT3). Stepping by width instead shears the
+    // image a little further left on every row.
+    uint8_t* out = dst + static_cast<size_t>(y) * dstRowBytes;
     for (uint16_t x = 0; x < width; ++x) {
       // MSB is the leftmost pixel; a set bit is white.
       const uint8_t bit = static_cast<uint8_t>(0x80u >> (x & 7u));
