@@ -87,6 +87,12 @@ target_compile_options(crosspoint_kindle_platform PRIVATE -Wall -Wextra)
 add_compile_options(-ffunction-sections -fdata-sections)
 add_link_options(-Wl,--gc-sections)
 
+# The device's libstdc++ is from its 2013 firmware and the toolchain's gcc is
+# 14.4, so a dynamically linked binary dies at startup on a missing
+# GLIBCXX_3.4.31. Carrying the C++ runtime inside the binary settles it; glibc
+# stays shared, which is safe at the GLIBC_2.4 this build needs.
+add_link_options(-static-libstdc++ -static-libgcc)
+
 # clock_gettime lives in librt in glibc before 2.17, and this target predates
 # that by a decade. Without it the link fails on a symbol the header declares
 # perfectly happily.

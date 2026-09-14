@@ -187,7 +187,18 @@ echo "--- attempting a link ---"
 # reached.
 # Archives last, and repeated (--start-group): the libraries reference each
 # other and a single pass would miss symbols pulled in by a later member.
+# -static-libstdc++ -static-libgcc, and this is not optional on this device.
+#
+# The first binary linked cleanly and then refused to start:
+#
+#   libstdc++.so.6: version `GLIBCXX_3.4.31' not found
+#
+# The Kindle's C++ runtime is from its 2013 firmware; the toolchain's gcc is
+# 14.4. The library is there, it is just old. Carrying the C++ runtime inside
+# the binary settles it, and leaves only glibc shared, which is safe: this
+# binary needs GLIBC_2.4, the same as the fbink the jailbreak installs.
 $CROSS -o "$OUT/crosspoint" $objs \
+    -static-libstdc++ -static-libgcc \
     -Wl,--gc-sections \
     -Wl,--start-group $archives -Wl,--end-group \
     build/kindle/FBInk/Release/libfbink.a -lrt -lpthread 2>"$OUT/link.err"
