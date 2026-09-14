@@ -77,6 +77,23 @@ class String {
   long toInt() const;
   double toFloat() const;
 
+  // ArduinoJson's writer appends through write(); the real Arduino String is
+  // special-cased inside the library, and this one is not, so it takes the
+  // generic path and needs these.
+  size_t write(const char* s, size_t n) {
+    if (s == nullptr) {
+      return 0;
+    }
+    buf.append(s, n);
+    return n;
+  }
+  size_t write(const uint8_t* s, size_t n) { return write(reinterpret_cast<const char*>(s), n); }
+  size_t write(uint8_t c) {
+    buf += static_cast<char>(c);
+    return 1;
+  }
+  bool concat(const char* s, size_t n) { return write(s, n) == n; }
+
   const std::string& str() const { return buf; }
 
   String& operator+=(const String& rhs) {

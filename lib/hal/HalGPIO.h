@@ -5,6 +5,14 @@
 #if FREEINK_DEVICE_KINDLE
 // No InputManager here: it drives an ADC button ladder and a touch controller
 // over I2C, neither of which exists on this device. Touch arrives from evdev.
+//
+// BoardConfig.h is included explicitly because InputManager.h used to bring it
+// in transitively. Dropping it made FREEINK_CAP_TOUCH evaluate to 0 wherever
+// this header was reached first, which silently removed the touch half of
+// MappedInputManager's declarations and only showed up as "no declaration
+// matches" at its definitions.
+#include <BoardConfig.h>
+
 #include "kindle/KindleTouch.h"
 #else
 #include <InputManager.h>
