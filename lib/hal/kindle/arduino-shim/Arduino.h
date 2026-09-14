@@ -12,6 +12,11 @@
 // so at the real call site, which is the outcome we want.
 
 #include "../ArduinoCompat.h"
+// The real core's umbrella header brings Serial with it, and 24 files in the
+// tree rely on that rather than including HardwareSerial.h themselves.
+#include "HardwareSerial.h"
+#include "Print.h"
+#include "Stream.h"
 
 // The core pulls these in for its users; code written against it assumes they
 // are already there.
