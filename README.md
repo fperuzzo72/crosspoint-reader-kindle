@@ -57,6 +57,10 @@ avoid making in writing.
 - Grayscale text antialiasing and grayscale images, composed from the
   renderer's two 1bpp planes into the 8bpp frame the EPDC wants.
 - Leaving: Settings > System > Exit CrossPoint hands the screen back.
+- Sleeping and waking with the power button. Two separate things had to work
+  for this: the Kindle's own UI blanks the shared framebuffer on the way in,
+  and the machine genuinely suspends out from under the process on the way out.
+  The reader now repaints for both, and the page survives the round trip.
 
 ## Written but not yet confirmed on a device
 
@@ -67,9 +71,6 @@ did.
 
 - Grayscale composition. The pure part is covered by host tests driven through
   the renderer's own encoding function; the panel half has not been eyeballed.
-- Repainting after a suspend. The power button suspends the machine out from
-  under the process, and it should repaint when it comes back rather than
-  leaving a stale panel.
 - Extra fonts from the CrossPoint catalogue, installed to `/.fonts` rather than
   `/fonts`, which belongs to the Kindle.
 

@@ -472,10 +472,17 @@ Done:
   presses and swipes.
 - Arduino, FreeRTOS, SdFat, networking and crypto surfaces, enough for a tree
   written against a microcontroller to compile against glibc.
-- Suspend and resume, detected from the two kernel clocks that disagree about
-  it: `CLOCK_MONOTONIC` stops while suspended and `CLOCK_BOOTTIME` does not, so
-  the gap between them is the time spent asleep. No lipc listener, no sysfs
-  watch, no new dependency.
+- Sleeping and waking, which turned out to be two problems wearing one
+  symptom. On the way in, the Kindle's UI blanks the framebuffer it SHARES with
+  this process, so our pixels are replaced in the mapping we both hold; 96
+  sample points checked every 400ms catch that, and a difference is positive
+  evidence of a second writer, which no amount of successful writing could
+  show. On the way out, the machine genuinely suspends, caught from the two
+  kernel clocks that disagree about it: `CLOCK_MONOTONIC` stops while suspended
+  and `CLOCK_BOOTTIME` does not, so the gap between them is the time spent
+  asleep. Measured on device: 4759s monotonic against 6763s boottime at one
+  launch, and a 64719ms suspend detected across one press of the power button.
+  No lipc listener, no sysfs watch, no new dependency.
 - Grayscale: the renderer's two 1bpp planes composed into the 8bpp frame the
   EPDC wants. The ESP32's two-waveform sequence collapses to one here, because
   panel memory is just bytes.
