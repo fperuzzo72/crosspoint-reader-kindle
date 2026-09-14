@@ -24,7 +24,7 @@ class WiFiClient : public Client {
   WiFiClient& operator=(WiFiClient&& other) noexcept;
 
   int connect(const char* host, uint16_t port) override;
-  int connect(IPAddress ip, uint16_t port);
+  int connect(IPAddress ip, uint16_t port) override;
   void stop() override;
   uint8_t connected() override;
   explicit operator bool() { return connected() != 0; }

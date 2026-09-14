@@ -45,6 +45,11 @@ using wifi_mode_t = uint8_t;
 #define WIFI_STA 1
 #define WIFI_AP 2
 #define WIFI_AP_STA 3
+// ESP-IDF's spellings of the same set; the tree uses both.
+#define WIFI_MODE_NULL 0
+#define WIFI_MODE_STA 1
+#define WIFI_MODE_AP 2
+#define WIFI_MODE_APSTA 3
 
 #define WIFI_AUTH_OPEN 0
 #define WIFI_AUTH_WPA2_PSK 3

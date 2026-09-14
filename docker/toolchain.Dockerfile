@@ -35,5 +35,14 @@ WORKDIR /home/builder/koxtoolchain
 # ~1h. Lands in /home/builder/x-tools/arm-kindlepw2-linux-gnueabi.
 RUN ./gen-tc.sh kindlepw2
 
+
+# CMake for the target build (cmake/kindle/). Deliberately installed AFTER
+# gen-tc.sh so the hour-long toolchain layer stays cached: appending here costs
+# a minute, while adding cmake to the apt line above would rebuild everything.
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends cmake ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+USER builder
+
 ENV PATH="/home/builder/x-tools/arm-kindlepw2-linux-gnueabi/bin:${PATH}"
 WORKDIR /src
