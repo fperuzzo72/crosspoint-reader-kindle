@@ -561,7 +561,7 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
   int phyY = 0;
 
   // Note: this call should be inlined for better performance
-  rotateCoordinates(orientation, x, y, &phyX, &phyY, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), x, y, &phyX, &phyY, panelWidth, panelHeight);
 
   // Bounds checking against runtime panel dimensions
   if (phyX < 0 || phyX >= panelWidth || phyY < 0 || phyY >= panelHeight) {
@@ -1000,8 +1000,8 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
   // The bounding rect in physical space is the rect we need to fill — rotation
   // is rigid (no shear/stretch) so the bbox of the two corners IS the rect.
   int paX, paY, pbX, pbY;
-  rotateCoordinates(orientation, lx0, ly0, &paX, &paY, panelWidth, panelHeight);
-  rotateCoordinates(orientation, lx1 - 1, ly1 - 1, &pbX, &pbY, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), lx0, ly0, &paX, &paY, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), lx1 - 1, ly1 - 1, &pbX, &pbY, panelWidth, panelHeight);
 
   const int phyX0 = std::min(paX, pbX);
   const int phyX1 = std::max(paX, pbX);  // inclusive
@@ -1061,7 +1061,7 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
     // dlxPerPhyX / dlyPerPhyX: how logical (x, y) change as phyX increments
     // along a physical row. Derived from inverting rotateCoordinates.
     int dlxPerPhyX = 0, dlyPerPhyX = 0;
-    switch (orientation) {
+    switch (physicalOrientation()) {
       case Portrait:
         dlxPerPhyX = 0;
         dlyPerPhyX = 1;
@@ -1089,7 +1089,7 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
     for (int parityIdx = 0; parityIdx < 2; ++parityIdx) {
       const int samplePy = phyY0 + parityIdx;
       int lxBase = 0, lyBase = 0;
-      switch (orientation) {
+      switch (physicalOrientation()) {
         case Portrait:
           lxBase = panelHeight - 1 - samplePy;
           lyBase = byteStart * 8;
@@ -1301,9 +1301,9 @@ void GfxRenderer::fillRoundedRect(const int x, const int y, const int width, con
 void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
   int rotatedX = 0;
   int rotatedY = 0;
-  rotateCoordinates(orientation, x, y, &rotatedX, &rotatedY, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), x, y, &rotatedX, &rotatedY, panelWidth, panelHeight);
   // Rotate origin corner
-  switch (orientation) {
+  switch (physicalOrientation()) {
     case Portrait:
       rotatedY = rotatedY - height;
       break;
@@ -1536,8 +1536,8 @@ void GfxRenderer::preserveImagePolarity(const int x, const int y, const int widt
   }
 
   int ax, ay, bx, by;
-  rotateCoordinates(orientation, x, y, &ax, &ay, panelWidth, panelHeight);
-  rotateCoordinates(orientation, x + width - 1, y + height - 1, &bx, &by, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), x, y, &ax, &ay, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), x + width - 1, y + height - 1, &bx, &by, panelWidth, panelHeight);
 
   int left = std::max(0, std::min(ax, bx));
   int right = std::min(static_cast<int>(panelWidth) - 1, std::max(ax, bx));
@@ -1662,8 +1662,8 @@ bool GfxRenderer::glyphIntersectsStrip(int x0, int y0, int x1, int y1) const {
   // orientations the physical bbox stays axis-aligned, so min/max of the two
   // rotated corners' Y bounds the glyph's physical y-extent.
   int ax, ay, bx, by;
-  rotateCoordinates(orientation, x0, y0, &ax, &ay, panelWidth, panelHeight);
-  rotateCoordinates(orientation, x1, y1, &bx, &by, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), x0, y0, &ax, &ay, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), x1, y1, &bx, &by, panelWidth, panelHeight);
   const int minY = ay < by ? ay : by;
   const int maxY = ay > by ? ay : by;
   return !(maxY < _stripY0 || minY >= _stripY0 + _stripRows);
@@ -1714,7 +1714,7 @@ bool GfxRenderer::supportsAsyncGrayscaleBase() const { return grayscaleCapabilit
 size_t GfxRenderer::readFramebufferRegion(int x, int y, int w, int h, uint8_t* dst, size_t dstCapacity) const {
   if (dst == nullptr || w <= 0 || h <= 0) return 0;
 
-  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
+  const AlignedMemRect mem = screenRectToAlignedMemRect(physicalOrientation(), x, y, w, h, panelWidth, panelHeight);
   if (!mem.valid) return 0;
 
   const size_t rowBytes = mem.w / 8;  // exact: mem.w is a multiple of 8
@@ -1732,7 +1732,7 @@ size_t GfxRenderer::readFramebufferRegion(int x, int y, int w, int h, uint8_t* d
 void GfxRenderer::writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src) {
   if (src == nullptr || w <= 0 || h <= 0) return;
 
-  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
+  const AlignedMemRect mem = screenRectToAlignedMemRect(physicalOrientation(), x, y, w, h, panelWidth, panelHeight);
   if (!mem.valid) return;
 
   const size_t rowBytes = mem.w / 8;  // exact: mem.w is a multiple of 8
@@ -1830,7 +1830,7 @@ std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* 
 
 // Note: Internal driver treats screen in command orientation; this library exposes a logical orientation
 int GfxRenderer::getScreenWidth() const {
-  switch (orientation) {
+  switch (physicalOrientation()) {
     case Portrait:
     case PortraitInverted:
       // 480px wide in portrait logical coordinates
@@ -1844,7 +1844,7 @@ int GfxRenderer::getScreenWidth() const {
 }
 
 int GfxRenderer::getScreenHeight() const {
-  switch (orientation) {
+  switch (physicalOrientation()) {
     case Portrait:
     case PortraitInverted:
       // 800px tall in portrait logical coordinates
@@ -1865,7 +1865,7 @@ void GfxRenderer::tapToLogical(float nx, float ny, int& outX, int& outY) const {
   if (phyY < 0) phyY = 0;
   if (phyY > panelHeight - 1) phyY = panelHeight - 1;
 
-  switch (orientation) {
+  switch (physicalOrientation()) {
     case Portrait:
       outX = panelHeight - 1 - phyY;
       outY = phyX;
@@ -1921,7 +1921,7 @@ static bool logicalRectToPhysicalBounds(GfxRenderer::Orientation orientation, in
 
 size_t GfxRenderer::getRegionByteSize(int lx, int ly, int lw, int lh) const {
   int x0, y0, x1, y1;
-  if (!logicalRectToPhysicalBounds(orientation, lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1)) {
+  if (!logicalRectToPhysicalBounds(physicalOrientation(), lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1)) {
     return 0;
   }
   // x bounds are in pixels; widen to byte boundaries on either side so per-row
@@ -1935,7 +1935,7 @@ size_t GfxRenderer::getRegionByteSize(int lx, int ly, int lw, int lh) const {
 
 bool GfxRenderer::copyRegionToBuffer(int lx, int ly, int lw, int lh, uint8_t* buf, size_t bufSize) const {
   int x0, y0, x1, y1;
-  if (!logicalRectToPhysicalBounds(orientation, lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1)) {
+  if (!logicalRectToPhysicalBounds(physicalOrientation(), lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1)) {
     return false;
   }
   const int byteX0 = x0 / 8;
@@ -1953,7 +1953,7 @@ bool GfxRenderer::copyRegionToBuffer(int lx, int ly, int lw, int lh, uint8_t* bu
 
 bool GfxRenderer::copyBufferToRegion(int lx, int ly, int lw, int lh, const uint8_t* buf, size_t bufSize) const {
   int x0, y0, x1, y1;
-  if (!logicalRectToPhysicalBounds(orientation, lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1)) {
+  if (!logicalRectToPhysicalBounds(physicalOrientation(), lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1)) {
     return false;
   }
   const int byteX0 = x0 / 8;
@@ -2229,8 +2229,8 @@ void GfxRenderer::preconditionGrayscale(int x, int y, int w, int h) const {
   // Rotate the logical rect's opposite corners to physical panel coords; the
   // physical bbox stays axis-aligned for all four orientations.
   int ax, ay, bx, by;
-  rotateCoordinates(orientation, x, y, &ax, &ay, panelWidth, panelHeight);
-  rotateCoordinates(orientation, x + w - 1, y + h - 1, &bx, &by, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), x, y, &ax, &ay, panelWidth, panelHeight);
+  rotateCoordinates(physicalOrientation(), x + w - 1, y + h - 1, &bx, &by, panelWidth, panelHeight);
   int x0 = ax < bx ? ax : bx, x1 = ax > bx ? ax : bx;
   int y0 = ay < by ? ay : by, y1 = ay > by ? ay : by;
   if (x0 < 0) x0 = 0;
@@ -2362,7 +2362,7 @@ void GfxRenderer::getOrientedViewableTRBL(int* outTop, int* outRight, int* outBo
   // Board truth: the bezel insets live in the active profile (panel-native
   // portrait frame); this only rotates them into the current orientation.
   const BoardConfig::ViewableInsets& vi = BoardConfig::ACTIVE.viewableInsets;
-  switch (orientation) {
+  switch (physicalOrientation()) {
     case Portrait:
       *outTop = vi.top;
       *outRight = vi.right;

@@ -44,7 +44,9 @@ class GfxRenderer {
   HalDisplay& display;
   RenderMode renderMode;
   mutable bool absoluteGrayPlanes = false;
-  Orientation orientation;
+  // The orientation callers set and read, in their own terms. Kept logical so
+  // saving and restoring it round-trips.
+  Orientation logicalOrientation;
   bool fadingFix;
   uint8_t* frameBuffer = nullptr;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
@@ -125,7 +127,7 @@ class GfxRenderer {
 
  public:
   explicit GfxRenderer(HalDisplay& halDisplay)
-      : display(halDisplay), renderMode(BW), orientation(Portrait), fadingFix(false) {}
+      : display(halDisplay), renderMode(BW), logicalOrientation(Portrait), fadingFix(false) {}
   ~GfxRenderer() { freeBwBufferChunks(); }
 
   // Setup
@@ -184,27 +186,33 @@ class GfxRenderer {
                              uint8_t styleMask = 0x0F) const;
 
   // Orientation control (affects logical width/height and coordinate transforms)
+  void setOrientation(const Orientation o) { logicalOrientation = o; }
+  Orientation getOrientation() const { return logicalOrientation; }
+
+ protected:
+  // The orientation to feed the coordinate maths, which is not always the one
+  // the caller asked for.
+  //
   // The Orientation enum is written from the Xteink panels' point of view,
-  // where the panel is physically landscape and Portrait is the rotated case:
-  // rotateCoordinates() turns Portrait 90 degrees clockwise, and
-  // getScreenWidth() returns panelHeight for it.
+  // where the panel is physically LANDSCAPE: rotateCoordinates turns Portrait
+  // 90 degrees clockwise and getScreenWidth returns panelHeight for it. A
+  // Kindle's panel is physically portrait, so every mapping is a quarter turn
+  // out and the reader comes up sideways.
   //
-  // A Kindle's panel is physically portrait (600x800), so every one of those
-  // mappings is a quarter turn out and the reader comes up in landscape.
-  //
-  // Rather than special-case the seven switches that read `orientation`, the
-  // value is remapped once here. Each logical orientation is satisfied by the
-  // physical mapping of the preceding enumerator, so the whole table shifts by
-  // one and everything downstream (coordinates, dimensions, dither phase, icon
-  // plotting) stays consistent without knowing about the device.
-  void setOrientation(const Orientation o) {
+  // Converting here rather than in setOrientation is deliberate. The themes
+  // save an orientation and restore it later, and remapping on the way in
+  // would shift it again on every round trip.
+  Orientation physicalOrientation() const {
 #if FREEINK_PANEL_NATIVE_PORTRAIT
-    orientation = static_cast<Orientation>((static_cast<int>(o) + 3) % 4);
+    // Each logical orientation is satisfied by the physical mapping of the
+    // preceding enumerator, so the whole table shifts by one.
+    return static_cast<Orientation>((static_cast<int>(logicalOrientation) + 3) % 4);
 #else
-    orientation = o;
+    return logicalOrientation;
 #endif
   }
-  Orientation getOrientation() const { return orientation; }
+
+ public:
 
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
