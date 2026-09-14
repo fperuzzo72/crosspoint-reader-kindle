@@ -157,6 +157,8 @@ void HalDisplay::refreshDisplay(const RefreshMode mode, const bool turnOffScreen
 
 void HalDisplay::deepSleep() { panel.deepSleep(); }
 
+bool HalDisplay::panelContentWasReplaced() const { return panel.panelContentWasReplaced(); }
+
 bool HalDisplay::reinitAfterResume() {
   // A base staged for a grayscale pass cannot have survived the suspend: it
   // lived in panel memory, which is exactly what is in doubt.

@@ -143,6 +143,10 @@ class HalDisplay {
   // repaint. Returns false when the panel could not be reopened at all, which
   // is the one failure this can actually detect.
   bool reinitAfterResume();
+
+  // True when something outside this process has painted over the panel, which
+  // on this device means the Kindle's own UI blanking the screen.
+  bool panelContentWasReplaced() const;
 #endif
 
   // Runtime geometry passthrough

@@ -158,6 +158,20 @@ class KindleFrameBuffer {
   // and wait for it. Returns false if it could not be issued.
   bool refresh(Waveform waveform);
 
+  // Has something else painted over us?
+  //
+  // /dev/fb0 is one framebuffer shared with the Kindle's own UI, so when the
+  // framework blanks the screen it replaces OUR pixels in the mapping we both
+  // hold. That is directly observable, and it is the symptom actually reported:
+  // the reader stays alive and correct, answers touches, and redraws properly
+  // the moment it is asked, while the glass sits white.
+  //
+  // Note what this is not. Reading back our own write proves nothing about
+  // whether the panel received it. This is the opposite question: whether what
+  // we wrote is still what is there. A difference is positive evidence that a
+  // second writer exists, which no amount of successful writing could show.
+  bool panelContentWasReplaced() const;
+
   // Read one pixel back out of the mapped framebuffer. Only exists so the
   // smoke test can prove the pixels actually landed: the first run of this
   // backend reported success while every blit was silently failing, because
@@ -169,6 +183,17 @@ class KindleFrameBuffer {
 
  private:
   void blit(const uint8_t* frame);
+  // Snapshot the sample points after we paint, so a later comparison is
+  // against what WE last put there rather than against anything older.
+  void rememberPanelContent();
+
+  // Spread thinly over the whole frame rather than clustered: a blanking pass
+  // covers everything, but so would a single large white region in a book, and
+  // only the spread tells them apart.
+  static constexpr int PANEL_SAMPLES = 96;
+  uint8_t contentSample[PANEL_SAMPLES] = {};
+  bool haveContentSample = false;
+  size_t sampleOffsetAt(int index) const;
 
   int fbfd = -1;
   uint16_t panelWidth = 0;

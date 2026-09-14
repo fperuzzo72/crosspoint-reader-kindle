@@ -621,57 +621,59 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
 #if FREEINK_DEVICE_KINDLE
-  // The power button suspends the whole machine out from under this process.
-  // It comes back with no idea anything happened, so without this the panel
-  // keeps whatever the suspend left on it and nothing redraws until the next
-  // touch. The first report of that was a blank screen that only USB fixed.
+  // Two different ways this process can end up showing a stale or blank panel,
+  // and they turned out to be different problems wearing the same symptom.
   //
-  // handleForcedRefresh() first so an activity that knows how to schedule a
-  // clean pass does one: coming back from sleep is exactly when the panel
-  // wants a full waveform rather than a differential update.
+  // The first is a real suspend: the machine stops out from under the process
+  // and thaws later with no idea anything happened. resumedFromSuspend()
+  // catches that, and the panel is reopened before repainting because a
+  // suspend can leave the /dev/fb0 mapping valid as memory while it quietly
+  // stops being the panel.
   //
-  // One repaint is not enough, and the reason is a race rather than a bug. The
-  // panel comes back WHITE, and e-ink retains: if nothing were painting at all,
-  // the last CrossPoint frame would still be on the glass. Something is
-  // actively clearing it, and that something is the system finishing its own
-  // wake sequence after this process has already been thawed. So the repaint is
-  // repeated on a widening interval until the system has stopped touching the
-  // panel, which is what the user ends up doing by hand anyway.
-  static unsigned long resumeRepaintAt = 0;
-  static uint8_t resumeRepaintsLeft = 0;
-  static constexpr uint16_t RESUME_SETTLE_MS[] = {900, 1300, 1600};
-  static constexpr uint8_t RESUME_SETTLE_COUNT = sizeof(RESUME_SETTLE_MS) / sizeof(RESUME_SETTLE_MS[0]);
+  // The second is the one the device actually reported, and no suspend is
+  // involved. /dev/fb0 is ONE framebuffer shared with the Kindle's own UI, so
+  // when the framework blanks the screen it overwrites our pixels in the
+  // mapping we both hold. The reader stays alive and correct the whole time,
+  // which is exactly what was observed: a white screen that answers touches
+  // and redraws properly the moment it is asked to. Nothing about a clock or a
+  // wake-up event describes that. What describes it is that what we wrote is no
+  // longer what is there, so that is what gets asked.
   {
     uint32_t millisAsleep = 0;
     if (HalSystem::resumedFromSuspend(&millisAsleep)) {
-      // stderr, not LOG_INF: this build compiles at LOG_LEVEL 0, where only
-      // LOG_ERR survives. A diagnostic that is silently removed is worse than
-      // none, because its absence reads as "the path did not run".
-      std::fprintf(stderr, "[kindle] resumed after %lums suspended; forcing a repaint\n",
+      std::fprintf(stderr, "[kindle] resumed after %lums suspended; reopening the panel\n",
                    static_cast<unsigned long>(millisAsleep));
       if (display.reinitAfterResume()) {
-        resumeRepaintsLeft = RESUME_SETTLE_COUNT;
-        resumeRepaintAt = millis() + RESUME_SETTLE_MS[0];
         activityManager.handleForcedRefresh();
         activityManager.requestUpdate();
       } else {
         // The panel cannot be reopened, so this process can neither draw nor
-        // get out of the way, and the device needs a reboot to recover. Leaving
-        // is strictly better: the launcher runs next, and its fbink is a fresh
-        // process with a fresh handle that may well succeed where ours cannot.
+        // get out of the way, and the device would need a reboot to recover.
+        // Leaving is strictly better: the launcher runs next, and its fbink is
+        // a fresh process with a fresh handle.
         std::fprintf(stderr, "[kindle] panel unrecoverable after resume; exiting so the launcher can hand it back\n");
         HalSystem::requestApplicationExit();
       }
-    } else if (resumeRepaintsLeft > 0 && millis() >= resumeRepaintAt) {
-      // If a touch already redrew the screen these are redundant rather than
-      // harmful: the activity renders the same frame it would have rendered.
-      const uint8_t done = RESUME_SETTLE_COUNT - resumeRepaintsLeft;
-      --resumeRepaintsLeft;
-      if (resumeRepaintsLeft > 0) {
-        resumeRepaintAt = millis() + RESUME_SETTLE_MS[done + 1];
-      }
-      std::fprintf(stderr, "[kindle] settle repaint %u/%u after resume\n", static_cast<unsigned>(done + 1),
-                   static_cast<unsigned>(RESUME_SETTLE_COUNT));
+    }
+  }
+
+  // Polled rather than checked every iteration: the loop runs far faster than
+  // any blanking, and this reads device memory.
+  static unsigned long nextPanelCheckAt = 0;
+  static uint8_t consecutiveRepaints = 0;
+  // A cap, because the framework is a persistent writer during USB mass storage
+  // and repainting over it forever would be a fight this process should lose:
+  // the user wants the "connected" screen then, not the reader.
+  static constexpr uint8_t MAX_CONSECUTIVE_REPAINTS = 4;
+  if (millis() >= nextPanelCheckAt) {
+    nextPanelCheckAt = millis() + 400;
+    if (!display.panelContentWasReplaced()) {
+      consecutiveRepaints = 0;  // our paint stuck; the field is ours again
+    } else if (consecutiveRepaints < MAX_CONSECUTIVE_REPAINTS) {
+      ++consecutiveRepaints;
+      std::fprintf(stderr, "[kindle] panel was painted over by something else; repainting (%u)\n",
+                   static_cast<unsigned>(consecutiveRepaints));
+      nextPanelCheckAt = millis() + 1200;  // give the repaint time to land
       activityManager.handleForcedRefresh();
       activityManager.requestUpdate();
     }

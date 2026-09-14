@@ -20,6 +20,7 @@
 
 #include <BoardConfig.h>
 
+#include <cstdio>
 #include <csignal>
 #include <ctime>
 
@@ -91,6 +92,11 @@ bool resumedFromSuspend(uint32_t* const millisAsleep) {
   if (!readClockMs(CLOCK_MONOTONIC, monotonicMs) || !readClockMs(CLOCK_BOOTTIME, boottimeMs)) {
     // A kernel without CLOCK_BOOTTIME cannot answer this question, and asking
     // it again every loop iteration would be a syscall per frame for nothing.
+    //
+    // Say so, loudly and once. The first version of this went quiet here, and a
+    // detector that disables itself in silence is indistinguishable from one
+    // that is working and finding nothing. That cost a round of testing.
+    std::fprintf(stderr, "[kindle] CLOCK_BOOTTIME unavailable; suspend detection is off for this run\n");
     clocksUsable = false;
     return false;
   }
@@ -101,6 +107,10 @@ bool resumedFromSuspend(uint32_t* const millisAsleep) {
     lastMonotonicMs = monotonicMs;
     lastBoottimeMs = boottimeMs;
     clocksInitialised = true;
+    // Printed so a log can prove the detector is armed. "No suspend was
+    // reported" and "nothing was ever watching" look identical otherwise.
+    std::fprintf(stderr, "[kindle] suspend detection armed (monotonic %lds, boottime %lds)\n",
+                 static_cast<long>(monotonicMs / 1000), static_cast<long>(boottimeMs / 1000));
     return false;
   }
 

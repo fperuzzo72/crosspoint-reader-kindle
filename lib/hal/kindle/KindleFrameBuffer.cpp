@@ -177,7 +177,43 @@ bool KindleFrameBuffer::refresh(const Waveform waveform) {
   pendingMarker = fbink_get_last_marker();
   hasPending = true;
   waitComplete();
+  rememberPanelContent();
   return true;
+}
+
+size_t KindleFrameBuffer::sampleOffsetAt(const int index) const {
+  // Evenly spaced, then nudged by a prime so the points do not all land on the
+  // same column of every row and miss a vertical band entirely.
+  const size_t span = mapLen / PANEL_SAMPLES;
+  const size_t base = static_cast<size_t>(index) * span;
+  return (base + static_cast<size_t>(index) * 619u) % mapLen;
+}
+
+void KindleFrameBuffer::rememberPanelContent() {
+  if (fbMem == nullptr || mapLen < PANEL_SAMPLES) {
+    haveContentSample = false;
+    return;
+  }
+  for (int i = 0; i < PANEL_SAMPLES; ++i) {
+    contentSample[i] = fbMem[sampleOffsetAt(i)];
+  }
+  haveContentSample = true;
+}
+
+bool KindleFrameBuffer::panelContentWasReplaced() const {
+  if (!haveContentSample || fbMem == nullptr || mapLen < PANEL_SAMPLES) {
+    return false;
+  }
+  // One differing sample is enough to know a second writer exists, but a
+  // threshold keeps a stray byte from triggering a repaint: a blanking pass
+  // changes nearly everything, so the signal is never marginal.
+  int differing = 0;
+  for (int i = 0; i < PANEL_SAMPLES; ++i) {
+    if (fbMem[sampleOffsetAt(i)] != contentSample[i]) {
+      ++differing;
+    }
+  }
+  return differing > PANEL_SAMPLES / 4;
 }
 
 uint8_t KindleFrameBuffer::peekPixel(const uint16_t x, const uint16_t y) const {
@@ -213,6 +249,7 @@ bool KindleFrameBuffer::displayStart(const uint8_t* frame, const Waveform wavefo
 
   pendingMarker = fbink_get_last_marker();
   hasPending = true;
+  rememberPanelContent();
   return true;
 }
 
