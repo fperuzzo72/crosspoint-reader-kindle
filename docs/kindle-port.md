@@ -472,6 +472,10 @@ Done:
   presses and swipes.
 - Arduino, FreeRTOS, SdFat, networking and crypto surfaces, enough for a tree
   written against a microcontroller to compile against glibc.
+- Suspend and resume, detected from the two kernel clocks that disagree about
+  it: `CLOCK_MONOTONIC` stops while suspended and `CLOCK_BOOTTIME` does not, so
+  the gap between them is the time spent asleep. No lipc listener, no sysfs
+  watch, no new dependency.
 - Grayscale: the renderer's two 1bpp planes composed into the 8bpp frame the
   EPDC wants. The ESP32's two-waveform sequence collapses to one here, because
   panel memory is just bytes.
@@ -524,10 +528,6 @@ Not reached, and why:
    that most limits the port in practice.
 2. **Multipart upload**, which gates the whole built-in web server: one route
    registers an upload handler and `begin()` refuses to start.
-3. **Suspend and resume.** The process does not notice that the device slept,
-   so it never repaints on wake. `CLOCK_MONOTONIC` does not advance across a
-   suspend while `CLOCK_BOOTTIME` does, so detecting it needs no new
-   dependency; nothing has been written yet.
-4. **Broad runtime verification.** A great deal of this tree compiles and links
+3. **Broad runtime verification.** A great deal of this tree compiles and links
    without ever having executed on the device. That is not the same as working,
    and this document tries to be careful about which of the two it is claiming.

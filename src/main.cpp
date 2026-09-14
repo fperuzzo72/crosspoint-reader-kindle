@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <BoardConfig.h>
+
+#include <cstdio>
 #include <Epub.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
@@ -264,6 +266,29 @@ static bool loadSleepFrameBuffer() {
 
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
+#if FREEINK_DEVICE_KINDLE
+  // Not on this device, and the callers' "this never returns" is exactly why.
+  //
+  // Every path here ends in powerManager.startDeepSleep(), which on an ESP32
+  // stops the chip and wakes it with a reset. There is no such call to make
+  // from a Linux process: the shimmed esp_deep_sleep_start() is an empty
+  // function, so it returned, deepSleepInProgress stayed latched, and the
+  // reader sat on its sleep screen with no way back. That was the reported
+  // symptom, and it was this line.
+  //
+  // Sleeping is the system's job here. The Kindle's own power management
+  // suspends the machine on its own schedule and wakes it on the power button,
+  // and resumedFromSuspend() in loop() repaints when it comes back. Duplicating
+  // that with an app-level timer buys nothing and, as it turns out, costs a
+  // hang.
+  (void)fromTimeout;
+  static bool said = false;
+  if (!said) {
+    said = true;
+    std::fprintf(stderr, "[kindle] sleep refused: the system owns power on this device\n");
+  }
+  return;
+#else
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
@@ -302,6 +327,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   LOG_DBG("MAIN", "Entering deep sleep");
 
   powerManager.startDeepSleep(gpio);
+#endif
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
@@ -594,6 +620,29 @@ void loop() {
   const unsigned long loopStartTime = millis();
   static unsigned long lastMemPrint = 0;
 
+#if FREEINK_DEVICE_KINDLE
+  // The power button suspends the whole machine out from under this process.
+  // It comes back with no idea anything happened, so without this the panel
+  // keeps whatever the suspend left on it and nothing redraws until the next
+  // touch. The first report of that was a blank screen that only USB fixed.
+  //
+  // handleForcedRefresh() first so an activity that knows how to schedule a
+  // clean pass does one: coming back from sleep is exactly when the panel
+  // wants a full waveform rather than a differential update.
+  {
+    uint32_t millisAsleep = 0;
+    if (HalSystem::resumedFromSuspend(&millisAsleep)) {
+      // stderr, not LOG_INF: this build compiles at LOG_LEVEL 0, where only
+      // LOG_ERR survives. A diagnostic that is silently removed is worse than
+      // none, because its absence reads as "the path did not run".
+      std::fprintf(stderr, "[kindle] resumed after %lums suspended; forcing a repaint\n",
+                   static_cast<unsigned long>(millisAsleep));
+      activityManager.handleForcedRefresh();
+      activityManager.requestUpdate();
+    }
+  }
+#endif
+
   gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
   mappedInputManager.update();
 
@@ -703,7 +752,11 @@ void loop() {
   }
 #endif
 
-  const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
+  // Sleeping is the system's job on the Kindle (see enterDeepSleep). Skipping
+  // the check here as well is not redundant: once the timeout has elapsed this
+  // condition is true on EVERY iteration, so leaving it to the guard inside
+  // would mean a refused call per frame, forever.
+  const unsigned long sleepTimeoutMs = FREEINK_DEVICE_KINDLE ? 0 : SETTINGS.getSleepTimeoutMs();
   if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
     enterDeepSleep(true);

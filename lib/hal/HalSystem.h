@@ -32,5 +32,18 @@ bool isRebootFromPanic();
 // that raised it finishes its frame first and nothing is left half-drawn.
 void requestApplicationExit();
 bool applicationExitRequested();
+
+// True once for each time the device has come back from a suspend, with the
+// time it spent there written to `millisAsleep` when non-null.
+//
+// Pressing the power button suspends the whole machine. The process is frozen
+// mid-loop and thawed later with no idea anything happened, so it never
+// repaints, and the panel comes back holding whatever the suspend left on it.
+//
+// Detecting it needs no lipc listener and no sysfs watch, because the kernel
+// already keeps two clocks that disagree in exactly this situation:
+// CLOCK_MONOTONIC stops while suspended and CLOCK_BOOTTIME keeps counting. The
+// gap between how much each advanced IS the time spent asleep.
+bool resumedFromSuspend(uint32_t* millisAsleep = nullptr);
 #endif
 }  // namespace HalSystem

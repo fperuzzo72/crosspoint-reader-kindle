@@ -21,6 +21,7 @@
 #include <BoardConfig.h>
 
 #include <csignal>
+#include <ctime>
 
 namespace HalSystem {
 
@@ -48,6 +49,73 @@ volatile sig_atomic_t exitRequested = 0;
 void requestApplicationExit() { exitRequested = 1; }
 
 bool applicationExitRequested() { return exitRequested != 0; }
+
+namespace {
+
+// Kernel 2.6.39 added it and this device runs 3.10, but the toolchain targets
+// a glibc old enough that its headers predate the constant. The clock id is
+// passed through to the kernel untouched, so defining it here is enough.
+#ifndef CLOCK_BOOTTIME
+#define CLOCK_BOOTTIME 7
+#endif
+
+bool readClockMs(const clockid_t id, int64_t& outMs) {
+  timespec ts{};
+  if (clock_gettime(id, &ts) != 0) {
+    return false;
+  }
+  outMs = static_cast<int64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
+  return true;
+}
+
+// Below this, the difference is scheduling noise rather than a suspend. The
+// two clocks track each other to well under a millisecond while the machine is
+// awake, so there is a lot of room between "noise" and "the user pressed
+// power", and no reason to sit close to the edge.
+constexpr int64_t SUSPEND_THRESHOLD_MS = 1000;
+
+int64_t lastMonotonicMs = 0;
+int64_t lastBoottimeMs = 0;
+bool clocksInitialised = false;
+bool clocksUsable = true;
+
+}  // namespace
+
+bool resumedFromSuspend(uint32_t* const millisAsleep) {
+  if (!clocksUsable) {
+    return false;
+  }
+
+  int64_t monotonicMs = 0;
+  int64_t boottimeMs = 0;
+  if (!readClockMs(CLOCK_MONOTONIC, monotonicMs) || !readClockMs(CLOCK_BOOTTIME, boottimeMs)) {
+    // A kernel without CLOCK_BOOTTIME cannot answer this question, and asking
+    // it again every loop iteration would be a syscall per frame for nothing.
+    clocksUsable = false;
+    return false;
+  }
+
+  if (!clocksInitialised) {
+    // The first call establishes the baseline. Comparing against zero here
+    // would report the whole uptime as a suspend.
+    lastMonotonicMs = monotonicMs;
+    lastBoottimeMs = boottimeMs;
+    clocksInitialised = true;
+    return false;
+  }
+
+  const int64_t asleepMs = (boottimeMs - lastBoottimeMs) - (monotonicMs - lastMonotonicMs);
+  lastMonotonicMs = monotonicMs;
+  lastBoottimeMs = boottimeMs;
+
+  if (asleepMs < SUSPEND_THRESHOLD_MS) {
+    return false;
+  }
+  if (millisAsleep != nullptr) {
+    *millisAsleep = static_cast<uint32_t>(asleepMs);
+  }
+  return true;
+}
 
 }  // namespace HalSystem
 

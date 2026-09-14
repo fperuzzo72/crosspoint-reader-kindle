@@ -57,6 +57,10 @@ avoid making in writing.
 - Grayscale text antialiasing and grayscale images, composed from the
   renderer's two 1bpp planes into the 8bpp frame the EPDC wants.
 - Leaving: Settings > System > Exit CrossPoint hands the screen back.
+- Suspend and resume: the power button suspends the machine out from under the
+  process, and it repaints when it comes back rather than leaving a stale panel.
+- Extra fonts from the CrossPoint catalogue, in `/.fonts` rather than `/fonts`,
+  which belongs to the Kindle.
 
 ## What does not
 
@@ -74,10 +78,10 @@ Listed because a port that hides its edges wastes the next person's afternoon.
   cannot make one.
 - **Firmware update over the air does not apply** to this target and fails
   every call on purpose.
-- **Sleeping with the power button while CrossPoint is running leaves a blank
-  screen on wake.** The process does not notice that the device suspended, so
-  it never repaints. Recovering means plugging in USB. Known bug, not yet
-  fixed.
+- **CrossPoint's own sleep timer is disabled here.** Sleeping is the system's
+  job on this device: the Kindle suspends and wakes on its own schedule, and
+  the reader repaints when it comes back. The app-level timer ended in a call
+  that cannot be made from a Linux process, so it is not taken.
 
 ## Installing
 
