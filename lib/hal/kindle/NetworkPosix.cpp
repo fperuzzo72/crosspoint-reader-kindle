@@ -18,6 +18,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 
 #include "arduino-shim/NetworkUdp.h"
 #include "arduino-shim/WiFi.h"
@@ -203,24 +204,27 @@ String WiFiClass::SSID(uint8_t) { return String(); }  // no scan results to name
 int32_t WiFiClass::RSSI(uint8_t) { return 0; }
 
 // ----------------------------------------------------------- WiFiClient ---
+//
+// Copyable with shared ownership, like Arduino's: the tree passes clients by
+// value and the socket must close when the LAST copy goes, not the first.
 
-WiFiClient::~WiFiClient() { stop(); }
+namespace {
 
-WiFiClient::WiFiClient(WiFiClient&& other) noexcept : sock(other.sock), peeked(other.peeked) {
-  other.sock = -1;
-  other.peeked = -1;
+// Closing happens here so every copy shares one lifetime.
+std::shared_ptr<int> adoptFd(const int fd) {
+  return std::shared_ptr<int>(new int(fd), [](int* p) {
+    if (p != nullptr) {
+      if (*p >= 0) {
+        ::close(*p);
+      }
+      delete p;
+    }
+  });
 }
 
-WiFiClient& WiFiClient::operator=(WiFiClient&& other) noexcept {
-  if (this != &other) {
-    stop();
-    sock = other.sock;
-    peeked = other.peeked;
-    other.sock = -1;
-    other.peeked = -1;
-  }
-  return *this;
-}
+}  // namespace
+
+WiFiClient::WiFiClient(const int existingFd) : sockRef(adoptFd(existingFd)), peekRef(std::make_shared<int>(-1)) {}
 
 int WiFiClient::connect(const char* host, const uint16_t port) {
   stop();
@@ -228,15 +232,16 @@ int WiFiClient::connect(const char* host, const uint16_t port) {
   if (!resolveHost(host, port, &addr)) {
     return 0;
   }
-  sock = socket(AF_INET, SOCK_STREAM, 0);
-  if (sock < 0) {
+  const int s = socket(AF_INET, SOCK_STREAM, 0);
+  if (s < 0) {
     return 0;
   }
-  if (::connect(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-    close(sock);
-    sock = -1;
+  if (::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+    ::close(s);
     return 0;
   }
+  sockRef = adoptFd(s);
+  peekRef = std::make_shared<int>(-1);
   return 1;
 }
 
@@ -247,21 +252,19 @@ int WiFiClient::connect(const IPAddress ip, const uint16_t port) {
 }
 
 void WiFiClient::stop() {
-  if (sock >= 0) {
-    close(sock);
-    sock = -1;
-  }
-  peeked = -1;
+  // Dropping the reference is the close; other copies, if any, keep it alive.
+  sockRef.reset();
+  peekRef.reset();
 }
 
 uint8_t WiFiClient::connected() {
-  if (sock < 0) {
+  if (fd() < 0) {
     return 0;
   }
-  // A socket whose peer has closed still exists; MSG_PEEK with a zero-length
-  // read distinguishes "open with nothing waiting" from "closed".
+  // A socket whose peer has closed still exists; MSG_PEEK distinguishes "open
+  // with nothing waiting" from "closed".
   char probe = 0;
-  const ssize_t n = recv(sock, &probe, 1, MSG_PEEK | MSG_DONTWAIT);
+  const ssize_t n = recv(fd(), &probe, 1, MSG_PEEK | MSG_DONTWAIT);
   if (n == 0) {
     return 0;  // orderly shutdown by the peer
   }
@@ -272,20 +275,21 @@ uint8_t WiFiClient::connected() {
 }
 
 int WiFiClient::available() {
-  if (sock < 0) {
-    return peeked >= 0 ? 1 : 0;
+  const int held = peekRef && *peekRef >= 0 ? 1 : 0;
+  if (fd() < 0) {
+    return held;
   }
   int count = 0;
-  if (ioctl(sock, FIONREAD, &count) != 0) {
+  if (ioctl(fd(), FIONREAD, &count) != 0) {
     count = 0;
   }
-  return count + (peeked >= 0 ? 1 : 0);
+  return count + held;
 }
 
 int WiFiClient::read() {
-  if (peeked >= 0) {
-    const int c = peeked;
-    peeked = -1;
+  if (peekRef && *peekRef >= 0) {
+    const int c = *peekRef;
+    *peekRef = -1;
     return c;
   }
   uint8_t c = 0;
@@ -293,19 +297,19 @@ int WiFiClient::read() {
 }
 
 int WiFiClient::read(uint8_t* buf, const size_t size) {
-  if (sock < 0 || buf == nullptr || size == 0) {
+  if (fd() < 0 || buf == nullptr || size == 0) {
     return -1;
   }
   size_t offset = 0;
-  if (peeked >= 0) {
-    buf[0] = static_cast<uint8_t>(peeked);
-    peeked = -1;
+  if (peekRef && *peekRef >= 0) {
+    buf[0] = static_cast<uint8_t>(*peekRef);
+    *peekRef = -1;
     offset = 1;
     if (size == 1) {
       return 1;
     }
   }
-  const ssize_t n = recv(sock, buf + offset, size - offset, 0);
+  const ssize_t n = recv(fd(), buf + offset, size - offset, 0);
   if (n < 0) {
     return offset > 0 ? static_cast<int>(offset) : -1;
   }
@@ -313,28 +317,31 @@ int WiFiClient::read(uint8_t* buf, const size_t size) {
 }
 
 int WiFiClient::peek() {
-  if (peeked >= 0) {
-    return peeked;
+  if (peekRef && *peekRef >= 0) {
+    return *peekRef;
   }
   uint8_t c = 0;
-  if (sock < 0 || recv(sock, &c, 1, 0) != 1) {
+  if (fd() < 0 || recv(fd(), &c, 1, 0) != 1) {
     return -1;
   }
-  peeked = c;
-  return peeked;
+  if (!peekRef) {
+    peekRef = std::make_shared<int>(-1);
+  }
+  *peekRef = c;
+  return *peekRef;
 }
 
 size_t WiFiClient::write(const uint8_t c) { return write(&c, 1); }
 
 size_t WiFiClient::write(const uint8_t* buf, const size_t size) {
-  if (sock < 0 || buf == nullptr) {
+  if (fd() < 0 || buf == nullptr) {
     return 0;
   }
   size_t sent = 0;
   while (sent < size) {
     // MSG_NOSIGNAL: a write to a peer that went away must return an error, not
     // kill the process with SIGPIPE.
-    const ssize_t n = send(sock, buf + sent, size - sent, MSG_NOSIGNAL);
+    const ssize_t n = send(fd(), buf + sent, size - sent, MSG_NOSIGNAL);
     if (n <= 0) {
       break;
     }
@@ -345,12 +352,37 @@ size_t WiFiClient::write(const uint8_t* buf, const size_t size) {
 
 void WiFiClient::flush() {}
 
+void WiFiClient::clear() {
+  if (peekRef) {
+    *peekRef = -1;
+  }
+  if (fd() < 0) {
+    return;
+  }
+  // Drain without blocking: whatever is buffered goes, and the loop ends as
+  // soon as the socket would wait.
+  uint8_t scratch[1024];
+  while (recv(fd(), scratch, sizeof(scratch), MSG_DONTWAIT) > 0) {
+  }
+}
+
 void WiFiClient::setNoDelay(const bool enable) {
-  if (sock < 0) {
+  if (fd() < 0) {
     return;
   }
   const int flag = enable ? 1 : 0;
-  setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+  setsockopt(fd(), IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+}
+
+void WiFiClient::setConnectionTimeout(const uint32_t ms) {
+  if (fd() < 0) {
+    return;
+  }
+  timeval tv{};
+  tv.tv_sec = static_cast<time_t>(ms / 1000);
+  tv.tv_usec = static_cast<suseconds_t>((ms % 1000) * 1000);
+  setsockopt(fd(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  setsockopt(fd(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 }
 
 // ----------------------------------------------------------- NetworkUdp ---
@@ -485,17 +517,6 @@ int NetworkUdp::read(uint8_t* buf, const size_t size) {
 }
 
 int NetworkUdp::peek() { return rxPos < rxLen ? rxBuf[rxPos] : -1; }
-
-void WiFiClient::setConnectionTimeout(const uint32_t ms) {
-  if (sock < 0) {
-    return;
-  }
-  timeval tv{};
-  tv.tv_sec = static_cast<time_t>(ms / 1000);
-  tv.tv_usec = static_cast<suseconds_t>((ms % 1000) * 1000);
-  setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-  setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-}
 
 #include "arduino-shim/ESPmDNS.h"
 

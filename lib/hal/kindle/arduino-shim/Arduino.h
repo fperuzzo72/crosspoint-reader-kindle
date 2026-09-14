@@ -121,6 +121,17 @@ inline void pinMode(uint8_t, uint8_t) {}
 inline void digitalWrite(uint8_t, uint8_t) {}
 inline int digitalRead(uint8_t) { return LOW; }
 inline int analogRead(uint8_t) { return 0; }
+
+// Arduino's random() takes a bound, unlike the C library's no-argument one.
+// These are overloads alongside it rather than a redefinition; without them a
+// random(a, b) resolves to the C function and fails on the argument count.
+inline long random(const long maxExclusive) {
+  return maxExclusive > 0 ? static_cast<long>(::rand()) % maxExclusive : 0;
+}
+inline long random(const long minInclusive, const long maxExclusive) {
+  return maxExclusive > minInclusive ? minInclusive + random(maxExclusive - minInclusive) : minInclusive;
+}
+inline void randomSeed(const unsigned long seed) { ::srand(static_cast<unsigned>(seed)); }
 inline uint32_t analogReadMilliVolts(uint8_t) { return 0; }
 
 // Clock speed. Reported as a plausible constant because callers use it for

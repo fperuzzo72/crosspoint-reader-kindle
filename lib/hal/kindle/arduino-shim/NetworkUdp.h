@@ -31,6 +31,9 @@ class NetworkUdp : public Stream {
   int available() override;
   int read() override;
   int read(uint8_t* buf, size_t size) override;
+  // Arduino's UDP offers both spellings and callers use the char one for text
+  // payloads (the Calibre discovery handshake is one).
+  int read(char* buf, size_t size) { return read(reinterpret_cast<uint8_t*>(buf), size); }
   int peek() override;
   void flush() override {}
 

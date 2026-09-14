@@ -25,6 +25,7 @@ set -u
 
 CROSS=arm-kindlepw2-linux-gnueabi-g++
 CROSS_CC=arm-kindlepw2-linux-gnueabi-gcc
+CROSS_AR=arm-kindlepw2-linux-gnueabi-gcc-ar
 OUT=build/kindle/link
 JOBS=$(nproc 2>/dev/null || echo 4)
 mkdir -p "$OUT"
@@ -50,7 +51,10 @@ CDEFS="-DXML_GE=0 -DXML_CONTEXT_BYTES=1024"
 # Arduino.h would reuse every stale object and report a number that was true
 # ten edits ago. Rather than track real dependencies, the newest header under
 # the shim wins: if it is newer than an object, that object is rebuilt.
-NEWEST_HEADER=$(find lib/hal/kindle -name '*.h' -newer "$OUT/.stamp" 2>/dev/null | head -1)
+# Watch the generated defines header too: it carries build-wide macros
+# (ARDUINOJSON_ENABLE_ARDUINO_STRING, CROSSPOINT_VERSION) and a change there
+# affects every object, but it lives outside the shim tree.
+NEWEST_HEADER=$(find lib/hal/kindle build/kindle/census-defines.h -name '*.h' -newer "$OUT/.stamp" 2>/dev/null | head -1)
 if [ ! -f "$OUT/.stamp" ] || [ -n "$NEWEST_HEADER" ]; then
     echo "--- shim headers changed, discarding objects ---"
     rm -f "$OUT"/*.o
@@ -99,18 +103,81 @@ chmod +x "$OUT/cc-one.sh"
 #   freeink-sdk/libs/    the SDK vendors ITS OWN miniz and libunibreak, with
 #                        different symbol prefixes from CrossPoint's copies
 #   FBInk/libunibreak    only as a fallback; the SDK's copy wins if present
-{ find lib -name '*.c' 2>/dev/null
+# CrossPoint and the SDK each vendor expat, both exporting unprefixed XML_*
+# symbols, so only one can be linked. The SDK's wins because it carries a real
+# expat_config.h rather than relying on build flags, and because its include
+# directory already comes first: linking CrossPoint's copy while compiling
+# against the SDK's header would mix two configurations of one library.
+{ find lib -name '*.c' -not -path 'lib/expat/*' 2>/dev/null
   find freeink-sdk/libs -name '*.c' 2>/dev/null
   # Fetched libraries: only their src/, never examples, tests or the desktop
   # ports upstream ships alongside (those carry their own main()).
   find build/kindle/thirdparty/*/src -name '*.c' 2>/dev/null
-} > "$OUT/csources.txt"
+} > "$OUT/csources.raw"
+
+# Some vendored C sources are not standalone: a wrapper (*_impl.c) applies a
+# symbol-prefix config and then #includes the raw file. There are two miniz
+# copies in this tree, each with its own prefix, and compiling the raw sources
+# as well gives every one of their symbols two definitions.
+#
+# Rather than hardcode names, read the wrappers and exclude exactly what they
+# include. That stays correct if the vendoring changes.
+: > "$OUT/wrapped.txt"
+REPO_ROOT_ABS=$(pwd -P)
+# Any C file that #includes another C file is a wrapper, whatever it is
+# named: the miniz ones are *_impl.c but expat's are expat_xmlparse.c, and
+# matching on the name missed them entirely.
+for w in $(grep -rl '#include.*\.c"' lib freeink-sdk/libs --include='*.c' 2>/dev/null); do
+    dir=$(dirname "$w")
+    grep -oE '#include "[^"]*\.c"' "$w" | sed 's/#include "//;s/"//' | while read -r inc; do
+        # Normalise against the wrapper's directory, then make it relative
+        # again: the source list is relative, and an absolute path here would
+        # match nothing.
+        (cd "$dir" && readlink -f "$inc" 2>/dev/null | sed "s|^$REPO_ROOT_ABS/||") || true
+    done >> "$OUT/wrapped.txt"
+done
+
+if [ -s "$OUT/wrapped.txt" ]; then
+    grep -vFf "$OUT/wrapped.txt" "$OUT/csources.raw" > "$OUT/csources.txt" || cp "$OUT/csources.raw" "$OUT/csources.txt"
+    echo "--- excluding $(wc -l < "$OUT/wrapped.txt" | tr -d ' ') C sources that a wrapper already includes ---"
+else
+    cp "$OUT/csources.raw" "$OUT/csources.txt"
+fi
 
 echo "--- compiling ($(wc -l < "$OUT/sources.txt" | tr -d ' ') C++, $(wc -l < "$OUT/csources.txt" | tr -d ' ') C, -j$JOBS, incremental) ---"
 cat "$OUT/sources.txt" "$OUT/csources.txt" | xargs -P "$JOBS" -n1 "$OUT/cc-one.sh"
 
-objs=$(ls "$OUT"/*.o 2>/dev/null | tr '\n' ' ')
-echo "objects: $(echo $objs | wc -w | tr -d ' ')"
+echo "objects: $(ls "$OUT"/*.o 2>/dev/null | wc -l | tr -d ' ')"
+
+# Group objects into per-library archives rather than linking them loose.
+#
+# This is how the real build works and it is not cosmetic. Three copies of
+# miniz live in this tree (CrossPoint's, FreeInkBook's, ContentProtection's),
+# each with a config that prefixes only some of its symbols, so the rest
+# collide. PlatformIO never sees that because it archives each library and the
+# linker then pulls a member only when it resolves something still undefined:
+# duplicates across archives are "first wins", not an error.
+#
+# Linking loose objects forces every definition in and turns a working layout
+# into 14 multiple-definition errors.
+rm -f "$OUT"/*.a
+for o in "$OUT"/*.o; do
+    base=$(basename "$o")
+    case "$base" in
+        src_*|tools_*)   lib=app ;;
+        lib_hal_*)       lib=hal ;;
+        lib_*)           lib=$(echo "$base" | cut -d_ -f1-2) ;;
+        freeink-sdk_*)   lib=$(echo "$base" | cut -d_ -f1-4) ;;
+        *)               lib=thirdparty ;;
+    esac
+    "$CROSS_AR" rcs "$OUT/lib$lib.a" "$o" 2>/dev/null
+done
+
+# The app and the HAL go in as loose objects: they define main() and the
+# globals nothing references by name, which an archive would drop.
+objs=$(ls "$OUT"/src_*.o "$OUT"/tools_*.o "$OUT"/lib_hal_*.o 2>/dev/null | tr '\n' ' ')
+archives=$(ls "$OUT"/*.a 2>/dev/null | grep -vE 'libapp\.a|libhal\.a' | tr '\n' ' ')
+echo "archives: $(echo $archives | wc -w | tr -d ' ')"
 
 echo "--- attempting a link ---"
 # --gc-sections is what the firmware build uses and it is not just about size:
@@ -118,8 +185,11 @@ echo "--- attempting a link ---"
 # vendored subset, and nothing calls the function that calls them. Without
 # section GC those show up as undefined references to code that is never
 # reached.
+# Archives last, and repeated (--start-group): the libraries reference each
+# other and a single pass would miss symbols pulled in by a later member.
 $CROSS -o "$OUT/crosspoint" $objs \
     -Wl,--gc-sections \
+    -Wl,--start-group $archives -Wl,--end-group \
     build/kindle/FBInk/Release/libfbink.a -lrt -lpthread 2>"$OUT/link.err"
 echo "exit: $?"
 echo

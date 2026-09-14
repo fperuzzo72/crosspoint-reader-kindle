@@ -8,6 +8,7 @@
 // (OPDS, OTA checks, KOReader sync) behaves as written.
 
 #include <cstdint>
+#include <memory>
 
 #include "Client.h"
 #include "IPAddress.h"
@@ -15,13 +16,17 @@
 class WiFiClient : public Client {
  public:
   WiFiClient() = default;
-  explicit WiFiClient(int existingFd) : sock(existingFd) {}
-  ~WiFiClient() override;
+  explicit WiFiClient(int existingFd);
+  ~WiFiClient() override = default;
 
-  WiFiClient(const WiFiClient&) = delete;
-  WiFiClient& operator=(const WiFiClient&) = delete;
-  WiFiClient(WiFiClient&& other) noexcept;
-  WiFiClient& operator=(WiFiClient&& other) noexcept;
+  // Copyable, like Arduino's. The tree passes clients by value (a WebServer
+  // hands out server.client()), and the descriptor is shared rather than
+  // duplicated: the socket closes when the last copy goes away. Deleting the
+  // copy was safe against double-close but wrong about the type's contract.
+  WiFiClient(const WiFiClient&) = default;
+  WiFiClient& operator=(const WiFiClient&) = default;
+  WiFiClient(WiFiClient&&) noexcept = default;
+  WiFiClient& operator=(WiFiClient&&) noexcept = default;
 
   int connect(const char* host, uint16_t port) override;
   int connect(IPAddress ip, uint16_t port) override;
@@ -40,15 +45,21 @@ class WiFiClient : public Client {
   size_t write(const uint8_t* buf, size_t size) override;
   void flush() override;
 
+  // Discards whatever has arrived but not been read. Used after aborting a
+  // response so the next request does not read the abandoned body.
+  void clear();
   void setNoDelay(bool enable);
   void setConnectionTimeout(uint32_t ms);
   void setTimeout(uint32_t seconds) { Stream::setTimeout(seconds * 1000UL); }
 
  private:
-  int sock = -1;
+  // Shared so copies refer to one socket and the last one closes it.
+  std::shared_ptr<int> sockRef;
+  int fd() const { return sockRef ? *sockRef : -1; }
   // peek() has to look one byte ahead without consuming it, and a socket has
-  // no ungetc, so the byte is held here.
-  int peeked = -1;
+  // no ungetc, so the byte is held here. Shared for the same reason as the fd:
+  // two copies must not each believe they hold the lookahead byte.
+  std::shared_ptr<int> peekRef;
 };
 
 // Newer ESP32 cores renamed this; the tree uses both spellings.

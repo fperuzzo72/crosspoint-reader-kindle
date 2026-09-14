@@ -33,6 +33,11 @@ mkdir -p "$OUT"
 # at the compiler literally. A forced include sidesteps the quoting entirely.
 cat > "$OUT/census-defines.h" <<'DEFS'
 #pragma once
+// ArduinoJson probes for the real Arduino core to decide whether to support
+// ::String. The shim is not that core, so the support is requested here.
+#ifndef ARDUINOJSON_ENABLE_ARDUINO_STRING
+#define ARDUINOJSON_ENABLE_ARDUINO_STRING 1
+#endif
 #ifndef CROSSPOINT_VERSION
 #define CROSSPOINT_VERSION "kindle-dev"
 #endif

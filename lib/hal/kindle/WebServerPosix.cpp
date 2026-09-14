@@ -14,7 +14,7 @@
 
 #include "arduino-shim/WebServer.h"
 
-namespace {
+namespace detail {
 
 std::string urlDecode(const std::string& in) {
   std::string out;
@@ -60,6 +60,14 @@ HTTPMethod methodFromToken(const std::string& token) {
   if (token == "DELETE") return HTTP_DELETE;
   if (token == "OPTIONS") return HTTP_OPTIONS;
   if (token == "HEAD") return HTTP_HEAD;
+  // WebDAV.
+  if (token == "PROPFIND") return HTTP_PROPFIND;
+  if (token == "PROPPATCH") return HTTP_PROPPATCH;
+  if (token == "MKCOL") return HTTP_MKCOL;
+  if (token == "MOVE") return HTTP_MOVE;
+  if (token == "COPY") return HTTP_COPY;
+  if (token == "LOCK") return HTTP_LOCK;
+  if (token == "UNLOCK") return HTTP_UNLOCK;
   return HTTP_ANY;
 }
 
@@ -103,7 +111,12 @@ bool readLine(WiFiClient& c, std::string* out) {
   }
 }
 
-}  // namespace
+}  // namespace detail
+
+// Everything in detail is used unqualified below; only urlDecode needs the
+// qualification, because WebServer has a member of the same name that would
+// otherwise hide it and recurse.
+using namespace detail;
 
 WebServer::~WebServer() { stop(); }
 
@@ -182,6 +195,7 @@ void WebServer::handleClient() {
 
   reqArgs.clear();
   reqHeaders.clear();
+  requestContentLength = 0;
   pendingHeaders.clear();
   plannedLength = SIZE_MAX;
   headersSent = false;
@@ -215,7 +229,7 @@ bool WebServer::readRequest() {
     parseQuery(target.substr(q + 1));
     target = target.substr(0, q);
   }
-  reqUri = String(urlDecode(target));
+  reqUri = String(detail::urlDecode(target));
 
   size_t contentLength = 0;
   bool urlencodedBody = false;
@@ -233,6 +247,7 @@ bool WebServer::readRequest() {
 
     if (name == "content-length") {
       contentLength = static_cast<size_t>(std::strtoul(value.c_str(), nullptr, 10));
+      requestContentLength = contentLength;
     } else if (name == "content-type" && value.find("application/x-www-form-urlencoded") != std::string::npos) {
       urlencodedBody = true;
     }
@@ -268,15 +283,35 @@ void WebServer::parseQuery(const std::string& query) {
     const std::string pair = query.substr(pos, amp - pos);
     const size_t eq = pair.find('=');
     if (eq != std::string::npos) {
-      reqArgs[urlDecode(pair.substr(0, eq))] = urlDecode(pair.substr(eq + 1));
+      reqArgs[detail::urlDecode(pair.substr(0, eq))] = detail::urlDecode(pair.substr(eq + 1));
     } else if (!pair.empty()) {
-      reqArgs[urlDecode(pair)] = "";
+      reqArgs[detail::urlDecode(pair)] = "";
     }
     pos = amp + 1;
   }
 }
 
+String WebServer::urlDecode(const String& encoded) {
+  // Qualified: inside a member, the bare name resolves to this very function
+  // rather than the helper, which recurses forever.
+  return String(detail::urlDecode(encoded.str()));
+}
+
+void WebServer::addHandler(RequestHandler* handler) {
+  if (handler != nullptr) {
+    handlers.push_back(handler);
+  }
+}
+
 void WebServer::dispatch() {
+  // Handler objects first, in registration order: they claim whole subtrees
+  // (WebDAV does), which an exact-match route cannot express.
+  for (RequestHandler* h : handlers) {
+    if (h->canHandle(*this, reqMethod, reqUri) && h->handle(*this, reqMethod, reqUri)) {
+      return;
+    }
+  }
+
   for (const Route& r : routes) {
     if (r.uri != reqUri) {
       continue;
@@ -382,6 +417,16 @@ void WebServer::send(const int code, const String& contentType, const String& co
   if (!content.isEmpty()) {
     activeClient.write(reinterpret_cast<const uint8_t*>(content.c_str()), content.length());
   }
+}
+
+void WebServer::send_P(const int code, const char* contentType, const char* content) {
+  send(code, String(contentType != nullptr ? contentType : "text/plain"),
+       String(content != nullptr ? content : ""));
+}
+
+void WebServer::send_P(const int code, const char* contentType, const char* content, const size_t length) {
+  send(code, String(contentType != nullptr ? contentType : "text/plain"),
+       String(std::string(content != nullptr ? content : "", length)));
 }
 
 void WebServer::sendContent(const String& content) {

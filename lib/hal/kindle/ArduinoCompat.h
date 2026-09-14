@@ -39,7 +39,9 @@ class String {
   // overloads. Arduino's String has no std::string constructor at all, so
   // requiring the cast costs the tree nothing and matches upstream.
   explicit String(const std::string& s) : buf(s) {}
-  explicit String(char c) : buf(1, c) {}
+  // Not explicit: Arduino's String converts from char implicitly and callers
+  // pass a bare character where a String is expected.
+  String(char c) : buf(1, c) {}
   explicit String(int v) : buf(std::to_string(v)) {}
   explicit String(unsigned v) : buf(std::to_string(v)) {}
   explicit String(long v) : buf(std::to_string(v)) {}
@@ -93,13 +95,28 @@ class String {
     buf += static_cast<char>(c);
     return 1;
   }
+  // Arduino's String::concat family. ArduinoJson's ::String support calls
+  // these directly when it builds a document into one, so the set has to match
+  // what it expects rather than just what the app tree uses.
   bool concat(const char* s, size_t n) { return write(s, n) == n; }
+  bool concat(const char* s) { return s == nullptr ? false : concat(s, std::strlen(s)); }
+  bool concat(const String& s) { return concat(s.c_str(), s.length()); }
+  bool concat(char c) {
+    buf += c;
+    return true;
+  }
+  bool concat(unsigned char c) { return concat(static_cast<char>(c)); }
+  bool concat(int v) { return concat(std::to_string(v).c_str()); }
+  bool concat(unsigned v) { return concat(std::to_string(v).c_str()); }
+  bool concat(long v) { return concat(std::to_string(v).c_str()); }
+  bool concat(unsigned long v) { return concat(std::to_string(v).c_str()); }
+  bool concat(double v) { return concat(std::to_string(v).c_str()); }
 
   // ArduinoJson's Reader<String> pulls characters out one at a time. The real
   // Arduino String is special-cased inside the library; this one takes the
   // generic path, which expects a stream-like read().
-  int read() { return readPos < buf.size() ? static_cast<uint8_t>(buf[readPos++]) : -1; }
-  size_t readBytes(char* out, size_t n) {
+  int read() const { return readPos < buf.size() ? static_cast<uint8_t>(buf[readPos++]) : -1; }
+  size_t readBytes(char* out, size_t n) const {
     const size_t left = buf.size() - readPos;
     const size_t take = n < left ? n : left;
     std::memcpy(out, buf.data() + readPos, take);
@@ -134,8 +151,9 @@ class String {
 
  private:
   std::string buf;
-  // Only touched by the ArduinoJson reader path above.
-  size_t readPos = 0;
+  // Mutable because ArduinoJson's reader takes a const String& and still
+  // consumes characters from it; the logical value is unchanged by reading.
+  mutable size_t readPos = 0;
 };
 
 // ---------------------------------------------------------------- timing ---
@@ -171,6 +189,14 @@ class EspClass {
   // wrong, and would take a minute.
   [[noreturn]] void restart() const;
 };
+
+// ArduinoJson needs no custom converters here: it special-cases a class named
+// String by name, and this one is. Writing converters anyway made every
+// conversion ambiguous against the ones it already had.
+//
+// What it DOES need is ARDUINOJSON_ENABLE_ARDUINO_STRING=1, passed by the
+// build: the library auto-detects Arduino by probing for the real core, which
+// this shim is not, so the support has to be asked for explicitly.
 
 extern EspClass ESP;
 

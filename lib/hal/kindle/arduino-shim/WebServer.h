@@ -25,7 +25,25 @@
 #include "../ArduinoCompat.h"
 #include "WiFiClient.h"
 
-enum HTTPMethod : uint8_t { HTTP_ANY, HTTP_GET, HTTP_POST, HTTP_PUT, HTTP_DELETE, HTTP_OPTIONS, HTTP_HEAD };
+enum HTTPMethod : uint8_t {
+  HTTP_ANY,
+  HTTP_GET,
+  HTTP_POST,
+  HTTP_PUT,
+  HTTP_DELETE,
+  HTTP_OPTIONS,
+  HTTP_HEAD,
+  // WebDAV verbs. WebDAVHandler dispatches on these, so they are part of the
+  // enum rather than an extension: a server that parsed only the common seven
+  // would route every PROPFIND to the not-found handler.
+  HTTP_PROPFIND,
+  HTTP_PROPPATCH,
+  HTTP_MKCOL,
+  HTTP_MOVE,
+  HTTP_COPY,
+  HTTP_LOCK,
+  HTTP_UNLOCK,
+};
 
 enum HTTPUploadStatus : uint8_t { UPLOAD_FILE_START, UPLOAD_FILE_WRITE, UPLOAD_FILE_END, UPLOAD_FILE_ABORTED };
 
@@ -37,6 +55,40 @@ struct HTTPUpload {
   size_t totalSize = 0;
   size_t currentSize = 0;
   uint8_t* buf = nullptr;
+};
+
+// Raw-body streaming, the counterpart to upload for a request whose body is
+// not multipart. WebDAV's PUT arrives this way.
+// Streaming with no length announced up front. A global rather than a class
+// member, matching the Arduino library, because callers use it unqualified.
+inline constexpr size_t CONTENT_LENGTH_UNKNOWN = SIZE_MAX;
+inline constexpr size_t CONTENT_LENGTH_NOT_SET = SIZE_MAX - 1;
+
+enum HTTPRawStatus : uint8_t { RAW_START, RAW_WRITE, RAW_END, RAW_ABORTED };
+
+struct HTTPRaw {
+  HTTPRawStatus status = RAW_ABORTED;
+  size_t totalSize = 0;
+  size_t currentSize = 0;
+  uint8_t* buf = nullptr;
+};
+
+class WebServer;
+
+// A route handler object, as opposed to the lambda form on()-style routes take.
+// WebDAVHandler is one: it claims whole URI subtrees and needs the raw body.
+//
+// Registered handlers are consulted before the on() routes, in registration
+// order, and the first that claims the request gets it.
+class RequestHandler {
+ public:
+  virtual ~RequestHandler() = default;
+  virtual bool canHandle(WebServer& server, HTTPMethod method, const String& uri) = 0;
+  virtual bool handle(WebServer& server, HTTPMethod method, const String& uri) = 0;
+  virtual bool canUpload(WebServer&, const String&) { return false; }
+  virtual void upload(WebServer&, const String&, HTTPUpload&) {}
+  virtual bool canRaw(WebServer&, const String&) { return false; }
+  virtual void raw(WebServer&, const String&, HTTPRaw&) {}
 };
 
 class WebServer {
@@ -57,6 +109,8 @@ class WebServer {
   // The upload overload is accepted so routes compile, and refused at begin().
   void on(const String& uri, HTTPMethod method, THandlerFunction handler, THandlerFunction uploadHandler);
   void onNotFound(THandlerFunction handler) { notFoundHandler = handler; }
+  // The server does NOT take ownership, matching the Arduino original.
+  void addHandler(RequestHandler* handler);
 
   void handleClient();
 
@@ -72,6 +126,13 @@ class WebServer {
   bool hasHeader(const String& name) const;
   void collectHeaders(const char* headerKeys[], size_t count);
   HTTPUpload& upload() { return currentUpload; }
+  HTTPRaw& raw() { return currentRaw; }
+  // The request's announced body size. WebDAV's MKCOL refuses a request that
+  // carries one, so "absent" has to be distinguishable from zero.
+  size_t clientContentLength() const { return requestContentLength; }
+
+  // Percent-decoding, exposed because WebDAV decodes paths itself.
+  static String urlDecode(const String& encoded);
   WiFiClient& client() { return activeClient; }
 
   // --- response ---
@@ -79,6 +140,10 @@ class WebServer {
   void send(int code, const String& contentType, const String& content);
   void sendHeader(const String& name, const String& value, bool first = false);
   void setContentLength(size_t length) { plannedLength = length; }
+  // The _P variants send from program memory on AVR. There is no separate
+  // address space here, so they are the ordinary sends.
+  void send_P(int code, const char* contentType, const char* content);
+  void send_P(int code, const char* contentType, const char* content, size_t length);
   void sendContent(const String& content);
   void sendContent(const char* content, size_t length);
   void enableCORS(bool enable = true) { corsEnabled = enable; }
@@ -111,10 +176,13 @@ class WebServer {
   std::vector<std::string> collectedHeaderNames;
 
   std::vector<std::pair<String, String>> pendingHeaders;
+  size_t requestContentLength = 0;
   size_t plannedLength = SIZE_MAX;  // SIZE_MAX = "not announced"
   bool headersSent = false;
 
   HTTPUpload currentUpload;
+  HTTPRaw currentRaw;
+  std::vector<RequestHandler*> handlers;
 };
 
 // The tree also spells it this way on newer cores.
