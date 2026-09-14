@@ -14,4 +14,6 @@ class Client : public Stream {
   virtual int connect(IPAddress ip, uint16_t port) = 0;
   virtual void stop() = 0;
   virtual uint8_t connected() = 0;
+  // SecureClient marks this override, so the base has to declare it virtual.
+  virtual explicit operator bool() { return connected() != 0; }
 };

@@ -27,7 +27,7 @@ class WiFiClient : public Client {
   int connect(IPAddress ip, uint16_t port) override;
   void stop() override;
   uint8_t connected() override;
-  explicit operator bool() { return connected() != 0; }
+  explicit operator bool() override { return connected() != 0; }
 
   int available() override;
   int read() override;

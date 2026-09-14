@@ -278,6 +278,60 @@ rebooting the device are the same act; here they are not, and rebooting a
 Kindle to restart an app would be both wrong and slow.
 
 
+## Networking
+
+The division of labour in `arduino-shim/WiFi.h` is the whole design, and it
+is different from every other target.
+
+Everywhere else FreeInk *is* the firmware, so `WiFi.begin()` genuinely owns the
+radio. A Kindle runs Amazon's stack, which associates, roams, sleeps the radio
+and reconnects on its own schedule. A reader process calling `begin()` or
+`softAP()` would be fighting the system, and the user would lose their
+connection.
+
+So:
+
+| Reading the truth | Taking control |
+| --- | --- |
+| `localIP()` via `getifaddrs` | `begin()` returns `WL_CONNECT_FAILED` |
+| `macAddress()` via `SIOCGIFHWADDR` | `softAP()` returns false |
+| `RSSI()` from `/proc/net/wireless` | `disconnect()` returns false |
+| `SSID()` via wireless-extensions `SIOCGIWESSID` | `scanNetworks()` returns 0 |
+| `status()` from whether an interface is up with an address | |
+
+Failing rather than pretending matters here: a caller told "connecting" would
+wait forever for an association nobody requested. The practical consequence for
+CrossPoint is that the **join-a-network and hotspot flows do not apply on this
+target**, and should be hidden by capability rather than left to fail at the
+button.
+
+Everything downstream that just wants a socket works, because TCP and UDP are
+entirely real, and so is the HTTP server: routing, query and form arguments,
+headers, streamed bodies, CORS.
+
+**Multipart upload is the one deliberate gap.** `WebServer::begin()` refuses to
+start if any route registered an upload handler, and says why. Accepting a
+browser's POST and silently dropping the book is the worst outcome available;
+a failure at start-up is one a person can act on.
+
+## Correctness where wrong is as bad as absent
+
+Two pieces of the shim are implemented and tested against published vectors
+rather than stubbed, because their output is used as an identity:
+
+- **MD5.** KOReader's sync names a document by its digest. A stub returning a
+  constant would make every book the same document and quietly cross-contaminate
+  reading positions between them: data loss, not a missing feature. Checked
+  against RFC 1321's full test suite, including the 55/56/64-byte lengths where
+  padding either works or does not.
+- **base64.** HTTP Basic auth and stored-credential obfuscation. Checked against
+  RFC 4648's vectors, plus bytes above 0x7F where a char-signedness slip would
+  only show on non-ASCII content.
+
+Round-tripping either against itself would have passed for any self-consistent
+nonsense, which is why neither test does that.
+
+
 ## Where the build stands
 
 `build/kindle/census.sh` runs the cross-compiler over every source in `src/`,
@@ -289,7 +343,9 @@ most often, re-measure, repeat.
 | the device profile landed | 25% (58/228) | `Print.h` (59 files) |
 | Print, Serial, SPI, Wire, FreeRTOS | 35% (81/229) | SdFat's `FsApiConstants.h` (111 files) |
 | SdFat over POSIX, generated I18nKeys | 68% (158/231) | scattered |
-| `oflag_t`, `O_WRITE`, ESP stubs, String fix | **73% (169/231)** | networking (15 files) |
+| `oflag_t`, ESP stubs, String fix | 73% (169/231) | networking (15 files) |
+| sockets, HTTP server, MD5, base64 | 78% (184/234) | third-party headers |
+| the last ESP stubs and C++ fixes | **82% (192/234)** | third-party headers |
 
 Two of those steps are worth remembering as method rather than as results. The
 jump from 35% to 68% came from a single header: 111 files could not compile
@@ -300,16 +356,21 @@ String has no such constructor.
 
 ### What is left, by cause
 
-- **Networking, 15 files.** `WiFi.h`, `WiFiClient.h`, `NetworkUdp.h`. The
-  Kindle's Wi-Fi is already up and managed by the system, so this is sockets
-  work, not driver work, but it is the largest single remaining item.
-- **Third-party headers**: `PNGdec.h`, `JPEGDEC.h`, `tjpgd.h`, `MD5Builder.h`,
-  `base64.h`, `qrcode.h`. All portable; none vendored yet.
-- **`uzlib.h`, 6 files.** Already in `lib/uzlib`; an include-path fix.
-- **A long tail** of one- and two-file causes: `DRAM_ATTR`, `TwoWire::setTimeOut`,
-  `spi_flash_mmap.h`.
+The remaining 18% is almost entirely **unvendored third-party libraries**, not
+portability work:
 
-None of these is a portability problem. They are all plumbing.
+| Missing | Library | Files |
+| --- | --- | --- |
+| `WebSocketsServer.h` | links2004/WebSockets | 4 |
+| `PNGdec.h`, `JPEGDEC.h`, `tjpgd.h` | image decoders | 5 |
+| `mbedtls/*`, `esp_crt_bundle.h` | TLS | 3 |
+| `qrcode.h` | ricmoo/QRCode | 1 |
+
+All of them are portable C or C++; none of them has been fetched. Turning
+`docs/kindle-build.md`'s hand-fetch table into a real dependency step is the
+next piece of build work, and it is worth more than any further shimming.
+
+None of what remains is a portability problem. It is plumbing.
 
 ### Honest limits of the shims
 
@@ -324,6 +385,24 @@ and a stub would produce races rather than merely missing hardware. What does
 not carry across is priority and core affinity, which Linux does not offer on
 the same terms. Work that is merely backgrounded is fine; anything relying on
 priority for correctness is not.
+
+
+## Two C++ traps worth naming
+
+Both were self-inflicted and both compile silently wrong elsewhere, so they are
+recorded rather than quietly fixed.
+
+`WebServer` has a `close()` method, which **hid the global `::close()`** inside
+its own members: shutting the listening socket called the member with an int.
+The fix is qualification, and the lesson is that a method named after a libc
+function shadows it for the whole class.
+
+`WiFiClient`, `NetworkUdp` and `FsFile` override `write(uint8_t)` and
+`write(const uint8_t*, size_t)`, which **hides the inherited
+`Print::write(const char*)`** entirely: `write("literal")` then tries to
+resolve against the `uint8_t` overload. `using Print::write;` brings the base
+overloads back. `FsFile` had the same latent trap with no call site yet and got
+the same fix rather than waiting for it to bite.
 
 
 ## State

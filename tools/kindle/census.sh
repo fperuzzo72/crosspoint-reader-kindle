@@ -22,9 +22,20 @@ INC="$INC -Ilib/hal/kindle/arduino-shim"
 for d in $(find freeink-sdk/libs -type d -name include); do INC="$INC -I$d"; done
 for d in lib/*/; do INC="$INC -I${d%/}"; done
 INC="$INC -Ilib/miniz/src -Ilib/uzlib/src -Ilib/hal/kindle -Ilib/hal -Isrc -Ilib"
-INC="$INC -DCROSSPOINT_VERSION=\\"kindle-dev\\" -Isrc/components -Isrc/activities -Isrc/util -Isrc/network"
+INC="$INC -Isrc/components -Isrc/activities -Isrc/util -Isrc/network"
 
 mkdir -p "$OUT"
+
+# CROSSPOINT_VERSION is a string macro, and passing quotes through a shell
+# variable that is later word-split does not survive: the backslashes arrive
+# at the compiler literally. A forced include sidesteps the quoting entirely.
+cat > "$OUT/census-defines.h" <<'DEFS'
+#pragma once
+#ifndef CROSSPOINT_VERSION
+#define CROSSPOINT_VERSION "kindle-dev"
+#endif
+DEFS
+INC="$INC -include $OUT/census-defines.h"
 : > "$OUT/census-errors.txt"
 ok=0
 fail=0
