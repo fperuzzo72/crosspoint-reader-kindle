@@ -126,6 +126,48 @@ void KindleFrameBuffer::blit(const uint8_t* frame) {
   expand1bppToGray8(frame, fbMem, panelWidth, panelHeight, static_cast<uint16_t>(panelWidth / 8), stride);
 }
 
+bool KindleFrameBuffer::stageFrame(const uint8_t* frame) {
+  if (!isOpen() || fbMem == nullptr || frame == nullptr) {
+    return false;
+  }
+  // A waveform in flight is reading panel memory; overwriting it mid-refresh
+  // is how you get a torn frame that no later paint fully repairs.
+  if (hasPending) {
+    waitComplete();
+  }
+  blit(frame);
+  return true;
+}
+
+bool KindleFrameBuffer::stageGrayOverlay(const uint8_t* lsbPlane, const uint8_t* msbPlane) {
+  if (!isOpen() || fbMem == nullptr || lsbPlane == nullptr || msbPlane == nullptr) {
+    return false;
+  }
+  if (hasPending) {
+    waitComplete();
+  }
+  overlayGrayPlanesOnGray8(lsbPlane, msbPlane, fbMem, panelWidth, panelHeight,
+                           static_cast<uint16_t>(panelWidth / 8), stride);
+  return true;
+}
+
+bool KindleFrameBuffer::refresh(const Waveform waveform) {
+  if (!isOpen()) {
+    return false;
+  }
+  if (hasPending) {
+    waitComplete();
+  }
+  FBInkConfig cfg = refreshConfig(waveform);
+  if (fbink_refresh(fbfd, 0, 0, panelWidth, panelHeight, &cfg) < 0) {
+    return false;
+  }
+  pendingMarker = fbink_get_last_marker();
+  hasPending = true;
+  waitComplete();
+  return true;
+}
+
 uint8_t KindleFrameBuffer::peekPixel(const uint16_t x, const uint16_t y) const {
   if (fbMem == nullptr || x >= panelWidth || y >= panelHeight) {
     return 0;

@@ -3,6 +3,7 @@
 #include <BoardConfig.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
+#include <HalSystem.h>
 #include <Logging.h>
 #include <Memory.h>
 
@@ -93,6 +94,12 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts));
+#if FREEINK_DEVICE_KINDLE
+  // Last on purpose. On this target CrossPoint is a process that has taken over
+  // the panel of a device with its own UI underneath, and without this the only
+  // way back to the Kindle is a reset.
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_EXIT_APPLICATION, SettingAction::ExitApplication));
+#endif
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_TEXT_SETTINGS, SettingAction::TextSettings));
   readerSettings.insert(readerSettings.begin() + 1,
@@ -377,6 +384,15 @@ void SettingsActivity::toggleCurrentSetting() {
         } else {
           LOG_ERR("SETTINGS", "OOM: KeyboardLayoutsActivity");
         }
+        break;
+      case SettingAction::ExitApplication:
+#if FREEINK_DEVICE_KINDLE
+        // Raise the flag and return. The main loop finishes this frame and
+        // leaves through main(), which hands the panel back white; quitting
+        // from inside a render would leave the screen half-drawn.
+        SETTINGS.saveToFile();
+        HalSystem::requestApplicationExit();
+#endif
         break;
       case SettingAction::None:
         // Do nothing

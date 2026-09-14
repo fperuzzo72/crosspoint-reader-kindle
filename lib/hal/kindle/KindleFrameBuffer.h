@@ -43,6 +43,12 @@ inline constexpr uint32_t KT3_BUFFER_SIZE = static_cast<uint32_t>(KT3_WIDTH_BYTE
 inline constexpr uint8_t GRAY_BLACK = 0x00;
 inline constexpr uint8_t GRAY_WHITE = 0xFF;
 
+// The two intermediate levels CrossPoint's gray planes can express. The EPDC
+// resolves 16 through GC16/GL16; the renderer only ever asks for four, so these
+// are the two that sit evenly between black and white.
+inline constexpr uint8_t GRAY_DARK = 0x55;
+inline constexpr uint8_t GRAY_LIGHT = 0xAA;
+
 // Expand a 1bpp packed frame into 8bpp grayscale, one output byte per pixel.
 //
 // Pure, allocation-free, and hardware-free precisely so it can be tested on
@@ -62,6 +68,28 @@ inline constexpr uint8_t GRAY_WHITE = 0xFF;
 // shape once).
 void expand1bppToGray8(const uint8_t* src, uint8_t* dst, uint16_t width, uint16_t height, uint16_t srcRowBytes,
                        uint32_t dstRowBytes);
+
+// Paint CrossPoint's two 1bpp grayscale overlay planes on top of an 8bpp frame
+// that already holds the black-and-white base.
+//
+// The renderer expresses a gray pixel as a pair of bits, one from each plane,
+// in the encoding the SDK calls OverlayMasks. Both planes start cleared and a
+// plane SETS the bit where it claims the pixel, so, as (LSB, MSB):
+//
+//   (0,0)  this pixel is not gray; whatever the B/W base painted stands
+//   (1,1)  dark
+//   (0,1)  light
+//   (1,0)  not produced by the encoding; left to the base rather than guessed
+//
+// Pixels the planes do not claim are not written at all, which is why `dst` is
+// in-out: on this backend the base frame is already sitting in panel memory, so
+// "keep the base" costs nothing and needs no second copy of it.
+//
+// Pure and hardware-free for the same reason as expand1bppToGray8: this is
+// arithmetic that a host test can hold to account, and a wrong bit here is
+// invisible in a photograph of a page of text.
+void overlayGrayPlanesOnGray8(const uint8_t* lsbPlane, const uint8_t* msbPlane, uint8_t* dst, uint16_t width,
+                              uint16_t height, uint16_t srcRowBytes, uint32_t dstRowBytes);
 
 // How hard to drive the panel. Mirrors HalDisplay::RefreshMode so the Kindle
 // HalDisplay can forward its argument straight through.
@@ -103,6 +131,20 @@ class KindleFrameBuffer {
   // The EPDC copies the frame out on submission, so unlike the SPI panels the
   // caller may reuse its framebuffer immediately after this returns.
   bool displayStart(const uint8_t* frame, Waveform waveform);
+
+  // Expand a 1bpp frame into panel memory WITHOUT triggering a waveform.
+  // Splitting the paint from the refresh is what lets a grayscale page reach
+  // the panel in one waveform instead of two: the base lands here, the gray
+  // planes are painted over it, and only then does the EPDC run.
+  bool stageFrame(const uint8_t* frame);
+
+  // Paint the gray overlay planes over whatever stageFrame() (or a previous
+  // display()) left in panel memory. No waveform; call refresh() after.
+  bool stageGrayOverlay(const uint8_t* lsbPlane, const uint8_t* msbPlane);
+
+  // Run a waveform over the whole panel using what is already in panel memory,
+  // and wait for it. Returns false if it could not be issued.
+  bool refresh(Waveform waveform);
 
   // Read one pixel back out of the mapped framebuffer. Only exists so the
   // smoke test can prove the pixels actually landed: the first run of this

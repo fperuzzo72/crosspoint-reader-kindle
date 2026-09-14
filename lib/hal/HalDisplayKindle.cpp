@@ -9,17 +9,13 @@
 // PanelDriver and EpdBus tree, which is where 251 of the undefined symbols in
 // the first link attempt came from.
 //
-// ON GRAYSCALE, and this is a real limitation worth stating rather than
-// burying: CrossPoint's dual-plane grayscale machinery exists because the
-// ESP32 panels need host-driven LUT tricks to get more than two levels. The
-// Kindle's EPDC does 16 levels in hardware through GC16 and GL16, so none of
-// that machinery applies and every plane method here is a no-op. The cost is
-// that content renders 1-bit for now, since the buffer CrossPoint composes is
-// 1bpp. Getting true grayscale means feeding the panel an 8bpp frame directly,
-// which this backend is already positioned to do (the expansion is the only
-// thing in the way) but which needs the renderer to produce more than one bit
-// per pixel first. That is a later, worthwhile change, not a missing piece of
-// this one.
+// ON GRAYSCALE: CrossPoint's dual-plane machinery exists because the ESP32
+// panels need host-driven LUT tricks to get past two levels, and none of those
+// tricks apply here. What does carry over is the plane ENCODING, which is a
+// perfectly good way for a 1bpp renderer to say "this pixel is one of four
+// grays". So the planes are taken at face value and composed into the 8bpp
+// frame the EPDC wants. See the grayscale section below for the details, and
+// note that the two-waveform sequence the ESP32 needs collapses to one here.
 
 #include "HalDisplay.h"
 
@@ -134,12 +130,16 @@ uint8_t* HalDisplay::getFrameBuffer() const { return frameBuffer; }
 
 void HalDisplay::displayBuffer(const RefreshMode mode, const bool turnOffScreen) {
   (void)turnOffScreen;  // the kernel powers the panel down on its own
+  // A base staged for a grayscale pass that never came is superseded by this
+  // paint; dropping the flag here keeps it from firing a stray refresh later.
+  grayBaseStaged = false;
   if (frameBuffer != nullptr) {
     panel.display(frameBuffer, toWaveform(mode));
   }
 }
 
 void HalDisplay::displayBufferAsync(const RefreshMode mode) {
+  grayBaseStaged = false;  // superseded, same as displayBuffer()
   if (frameBuffer != nullptr) {
     panel.displayStart(frameBuffer, toWaveform(mode));
   }
@@ -200,34 +200,121 @@ uint16_t HalDisplay::getDisplayHeight() const { return DISPLAY_HEIGHT; }
 uint16_t HalDisplay::getDisplayWidthBytes() const { return DISPLAY_WIDTH_BYTES; }
 uint32_t HalDisplay::getBufferSize() const { return BUFFER_SIZE; }
 
-// --- grayscale: all no-ops, see the note at the top --------------------------
+// --- grayscale ---------------------------------------------------------------
+//
+// The renderer expresses grays as two 1bpp planes rather than as gray values,
+// because the ESP32 panels need host-driven LUT tricks to get past two levels.
+// None of that machinery applies here: the EPDC resolves 16 levels in hardware.
+// What still applies is the ENCODING, and that is all this backend takes from
+// it. The planes arrive, overlayGrayPlanesOnGray8() turns each claimed pixel
+// into a gray value, and the EPDC does the rest.
+//
+// One thing this does not inherit is the ESP32's two-waveform sequence. There
+// the base has to reach the panel before the gray masks can overlay it. Here
+// panel memory is just bytes, so displayGrayscaleBase() stages the base WITHOUT
+// running a waveform and displayGrayBuffer() paints the grays on top and runs
+// one. A page of antialiased text costs a single refresh, not two.
+//
+// The waveform for that refresh is never FAST. FAST is DU, which is two-level:
+// it would quantise every gray back to black or white and the whole pass would
+// be wasted work. HALF (GL16) is the floor, and a caller asking for FULL still
+// gets GC16.
 
-HalDisplay::GrayscaleCapabilities HalDisplay::grayscaleCapabilities(GrayscaleMode mode) const {
-  (void)mode;
-  return {};  // no host-driven planes on this panel
+HalDisplay::GrayscaleCapabilities HalDisplay::grayscaleCapabilities(const GrayscaleMode mode) const {
+  GrayscaleCapabilities caps;
+  if (mode != GrayscaleMode::Overlay) {
+    // Absolute planes carry every pixel including the background, which this
+    // backend could serve, but nothing routes to it without also claiming to
+    // be a UC8279 (see EpubReaderActivity). Claiming support for a path that
+    // cannot be reached would just be a lie in a capability struct.
+    return caps;
+  }
+  caps.encoding = GrayscaleEncoding::OverlayMasks;
+  // Combined: the base is deferred and joins the grays in one waveform.
+  caps.base = GrayscaleBase::Combined;
+  caps.stripUploads = false;   // no controller RAM to stream into
+  caps.asyncBase = false;      // the base never gets its own waveform at all
+  caps.stagingWhileBusy = true;  // staging is a memcpy into a mapping
+  return caps;
 }
 
 bool HalDisplay::supportsAsyncGrayscaleBase() const { return false; }
 bool HalDisplay::supportsStripGrayscale() const { return false; }
-bool HalDisplay::combinesGrayscaleBase() const { return false; }
+bool HalDisplay::combinesGrayscaleBase() const { return true; }
 
 void HalDisplay::displayGrayscaleBase(const RefreshMode fallback, const bool turnOffScreen) {
-  // With no plane machinery, the "base" is simply the frame.
-  displayBuffer(fallback, turnOffScreen);
+  (void)turnOffScreen;
+  if (frameBuffer == nullptr || !panel.stageFrame(frameBuffer)) {
+    // Staging failed: fall back to painting it normally so the page is not
+    // simply lost, and leave nothing deferred behind.
+    grayBaseStaged = false;
+    displayBuffer(fallback, turnOffScreen);
+    return;
+  }
+  grayBaseMode = (fallback == FULL_REFRESH) ? FULL_REFRESH : HALF_REFRESH;
+  grayBaseStaged = true;
 }
 
-bool HalDisplay::displayGrayscaleBase(GrayscaleMode mode, const RefreshMode fallback, const bool turnOffScreen) {
-  (void)mode;
-  displayBuffer(fallback, turnOffScreen);
-  return false;  // no grayscale pass follows
+bool HalDisplay::displayGrayscaleBase(const GrayscaleMode mode, const RefreshMode fallback,
+                                      const bool turnOffScreen) {
+  if (mode != GrayscaleMode::Overlay) {
+    displayBuffer(fallback, turnOffScreen);
+    return false;  // no grayscale pass follows
+  }
+  displayGrayscaleBase(fallback, turnOffScreen);
+  return grayBaseStaged;
 }
 
-void HalDisplay::copyGrayscaleBuffers(const uint8_t*, const uint8_t*) {}
-void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t*) {}
-void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t*) {}
-void HalDisplay::cleanupGrayscaleBuffers(const uint8_t*) {}
-void HalDisplay::displayGrayBuffer(const bool) {}
+void HalDisplay::copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer) {
+  if (lsbBuffer == nullptr) return;
+  if (grayLsbPlane == nullptr) grayLsbPlane = static_cast<uint8_t*>(std::malloc(BUFFER_SIZE));
+  if (grayLsbPlane != nullptr) std::memcpy(grayLsbPlane, lsbBuffer, BUFFER_SIZE);
+}
+
+void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) {
+  if (msbBuffer == nullptr) return;
+  if (grayMsbPlane == nullptr) grayMsbPlane = static_cast<uint8_t*>(std::malloc(BUFFER_SIZE));
+  if (grayMsbPlane != nullptr) std::memcpy(grayMsbPlane, msbBuffer, BUFFER_SIZE);
+}
+
+void HalDisplay::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* msbBuffer) {
+  copyGrayscaleLsbBuffers(lsbBuffer);
+  copyGrayscaleMsbBuffers(msbBuffer);
+}
+
+void HalDisplay::displayGrayBuffer(const bool turnOffScreen) {
+  (void)turnOffScreen;
+  const bool havePlanes = grayLsbPlane != nullptr && grayMsbPlane != nullptr;
+  if (!havePlanes && !grayBaseStaged) {
+    return;  // nothing was staged and nothing to overlay
+  }
+  if (havePlanes) {
+    panel.stageGrayOverlay(grayLsbPlane, grayMsbPlane);
+  }
+  panel.refresh(toWaveform(grayBaseStaged ? grayBaseMode : HALF_REFRESH));
+  grayBaseStaged = false;
+}
+
+void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) {
+  // On the ESP32 this re-syncs the controller's differential baseline. There is
+  // no such baseline here. What it must still do is rescue an abandoned pass:
+  // if a base was staged and the grayscale render then bailed out (an OOM on
+  // the way to the planes), the frame is sitting in panel memory with no
+  // waveform ever run over it, and the reader would show the previous page.
+  if (!grayBaseStaged) {
+    return;
+  }
+  if (bwBuffer != nullptr) {
+    panel.stageFrame(bwBuffer);
+  }
+  panel.refresh(toWaveform(grayBaseMode));
+  grayBaseStaged = false;
+}
+
 void HalDisplay::writeGrayscalePlaneStrip(bool, const uint8_t*, uint16_t, uint16_t) {}
+
+// X3-specific settle pass before its gray planes are written. The EPDC needs no
+// equivalent: GL16 is itself the "text on white" waveform this preconditions for.
 void HalDisplay::preconditionGrayscale() {}
 void HalDisplay::preconditionGrayscale(uint16_t, uint16_t, uint16_t, uint16_t) {}
 

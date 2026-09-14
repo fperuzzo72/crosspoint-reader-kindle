@@ -20,6 +20,8 @@
 
 #include <BoardConfig.h>
 
+#include <csignal>
+
 namespace HalSystem {
 
 void begin() {}
@@ -35,6 +37,17 @@ std::string getPanicInfo(const bool) {
 }
 
 bool isRebootFromPanic() { return false; }
+
+namespace {
+// Read by the main loop on every iteration, written by a UI activity. Both run
+// on the same thread today; volatile sig_atomic_t costs nothing and keeps this
+// correct if the signal handler ever needs to set it too.
+volatile sig_atomic_t exitRequested = 0;
+}  // namespace
+
+void requestApplicationExit() { exitRequested = 1; }
+
+bool applicationExitRequested() { return exitRequested != 0; }
 
 }  // namespace HalSystem
 

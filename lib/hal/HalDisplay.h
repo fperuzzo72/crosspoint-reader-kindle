@@ -153,6 +153,15 @@ class HalDisplay {
   uint8_t* frameBuffer = nullptr;
   uint8_t* lentStorage = nullptr;
   bool inverted = false;
+  // The renderer's two 1bpp grayscale overlay planes, kept until
+  // displayGrayBuffer() composes them onto the staged base. Allocated on first
+  // use: a device that never opens a book never pays for them.
+  uint8_t* grayLsbPlane = nullptr;
+  uint8_t* grayMsbPlane = nullptr;
+  // A base frame sits in panel memory with no waveform run over it yet,
+  // waiting for its gray planes so the two reach the panel together.
+  bool grayBaseStaged = false;
+  RefreshMode grayBaseMode = HALF_REFRESH;
 #else
   EInkDisplay einkDisplay;
 #endif

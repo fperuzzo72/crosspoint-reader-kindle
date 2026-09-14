@@ -1,5 +1,8 @@
 #pragma once
 
+#include <BoardConfig.h>  // FREEINK_PANEL_NATIVE_PORTRAIT, used below. Explicit
+                          // because arriving through HalDisplay.h means a macro
+                          // silently reads as 0 the day that include moves.
 #include <EpdFontFamily.h>
 #include <HalDisplay.h>
 
@@ -188,6 +191,13 @@ class GfxRenderer {
   // Orientation control (affects logical width/height and coordinate transforms)
   void setOrientation(const Orientation o) { logicalOrientation = o; }
   Orientation getOrientation() const { return logicalOrientation; }
+
+  // The orientation to use when turning logical coordinates into framebuffer
+  // addresses. Everything inside this class already goes through
+  // physicalOrientation(); DirectPixelWriter is the one caller outside it that
+  // also computes pixel addresses itself, and it has to get the same answer.
+  // Layout code deciding "am I portrait or landscape?" wants getOrientation().
+  Orientation getFramebufferOrientation() const { return physicalOrientation(); }
 
  protected:
   // The orientation to feed the coordinate maths, which is not always the one

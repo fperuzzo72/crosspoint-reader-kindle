@@ -24,6 +24,9 @@
 //  - The working directory moves to /mnt/us, which is what the reader means by
 //    the root of its storage on this device.
 
+#include <HalDisplay.h>
+#include <HalSystem.h>
+
 #include <csignal>
 #include <cstdio>
 #include <unistd.h>
@@ -57,11 +60,25 @@ int main() {
 
   setup();
 
-  while (stopRequested == 0) {
+  // Two ways out, and they mean different things. A signal is the launcher or
+  // the system asking; the HAL flag is the user picking "Exit CrossPoint" in
+  // the menu. Both leave through here so the panel is handed back in the same
+  // state either way.
+  while (stopRequested == 0 && !HalSystem::applicationExitRequested()) {
     loop();
   }
 
-  std::fprintf(stderr, "[kindle] stop requested, leaving the loop\n");
+  std::fprintf(stderr, "[kindle] %s, leaving the loop\n",
+               stopRequested != 0 ? "stop requested" : "exit chosen from the menu");
+
+  // Leave the panel white rather than frozen on whatever was last drawn. The
+  // Kindle's own UI has been running underneath this whole time and does not
+  // know its screen was taken; it repaints on its next event, and until then a
+  // stale CrossPoint frame reads as a hung device. A full refresh also scrubs
+  // the ghosting this session accumulated, so the framework draws onto a clean
+  // panel.
+  display.clearScreen();
+  display.displayBuffer(HalDisplay::FULL_REFRESH);
 
   // _exit, not return: returning runs the static destructors, and this tree
   // was written for a firmware that never shuts down. ~ActivityManager() has a

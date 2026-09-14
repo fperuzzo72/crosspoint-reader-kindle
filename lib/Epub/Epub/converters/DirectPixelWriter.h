@@ -48,7 +48,9 @@ struct DirectPixelWriter {
     const int phyW = renderer.getDisplayWidth();
     const int phyH = renderer.getDisplayHeight();
 
-    switch (renderer.getOrientation()) {
+    // Framebuffer addresses, not layout: on a panel whose native axis differs
+    // from the Xteink panels this is a quarter turn away from getOrientation().
+    switch (renderer.getFramebufferOrientation()) {
       case GfxRenderer::Portrait:
         // phyX = y, phyY = (phyH-1) - x
         phyXBase = 0;
