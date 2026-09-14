@@ -138,6 +138,13 @@ class HalDisplay {
   // the whole text body (a visible flash).
   bool combinesGrayscaleBase() const;
 
+#if FREEINK_DEVICE_KINDLE
+  // Re-establish the panel connection after the device has been suspended, and
+  // repaint. Returns false when the panel could not be reopened at all, which
+  // is the one failure this can actually detect.
+  bool reinitAfterResume();
+#endif
+
   // Runtime geometry passthrough
   uint16_t getDisplayWidth() const;
   uint16_t getDisplayHeight() const;

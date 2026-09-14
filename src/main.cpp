@@ -637,8 +637,17 @@ void loop() {
       // none, because its absence reads as "the path did not run".
       std::fprintf(stderr, "[kindle] resumed after %lums suspended; forcing a repaint\n",
                    static_cast<unsigned long>(millisAsleep));
-      activityManager.handleForcedRefresh();
-      activityManager.requestUpdate();
+      if (display.reinitAfterResume()) {
+        activityManager.handleForcedRefresh();
+        activityManager.requestUpdate();
+      } else {
+        // The panel cannot be reopened, so this process can neither draw nor
+        // get out of the way, and the device needs a reboot to recover. Leaving
+        // is strictly better: the launcher runs next, and its fbink is a fresh
+        // process with a fresh handle that may well succeed where ours cannot.
+        std::fprintf(stderr, "[kindle] panel unrecoverable after resume; exiting so the launcher can hand it back\n");
+        HalSystem::requestApplicationExit();
+      }
     }
   }
 #endif

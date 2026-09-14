@@ -157,6 +157,22 @@ void HalDisplay::refreshDisplay(const RefreshMode mode, const bool turnOffScreen
 
 void HalDisplay::deepSleep() { panel.deepSleep(); }
 
+bool HalDisplay::reinitAfterResume() {
+  // A base staged for a grayscale pass cannot have survived the suspend: it
+  // lived in panel memory, which is exactly what is in doubt.
+  grayBaseStaged = false;
+  if (!panel.reopen()) {
+    return false;
+  }
+  // Repaint from our own framebuffer, which is ordinary heap and did survive.
+  // FULL rather than FAST: DU is differential, and after a suspend there is no
+  // trustworthy previous state to be differential against.
+  if (frameBuffer != nullptr) {
+    panel.display(frameBuffer, toWaveform(FULL_REFRESH));
+  }
+  return true;
+}
+
 // --- inversion ---------------------------------------------------------------
 
 void HalDisplay::setInverted(const bool value) { inverted = value; }

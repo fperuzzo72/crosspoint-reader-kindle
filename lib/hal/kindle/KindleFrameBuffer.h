@@ -132,6 +132,18 @@ class KindleFrameBuffer {
   // caller may reuse its framebuffer immediately after this returns.
   bool displayStart(const uint8_t* frame, Waveform waveform);
 
+  // Tear the connection to /dev/fb0 down and build it again.
+  //
+  // For after a system suspend. The mapping survives one as perfectly valid
+  // memory, which is the problem: if the driver re-allocated the framebuffer
+  // while the panel was powered down, writes still succeed and simply stop
+  // reaching the panel, so a refresh shows whatever the driver left behind.
+  // Nothing readable from userspace distinguishes that from a healthy mapping,
+  // because reading back our own write proves only that the memory is memory.
+  // So this does not test, it re-establishes, and reports the geometry the
+  // driver comes back with in case it changed.
+  bool reopen();
+
   // Expand a 1bpp frame into panel memory WITHOUT triggering a waveform.
   // Splitting the paint from the refresh is what lets a grayscale page reach
   // the panel in one waveform instead of two: the base lands here, the gray

@@ -60,12 +60,23 @@ LOG=/mnt/us/crosspoint-run.log
     FBINK=/mnt/us/libkh/bin/fbink
     echo "--- leaving a message on the panel ---"
     if [ -x "$FBINK" ]; then
-        "$FBINK" -q -m -y 18 \
+        # One call per line, and no empty strings. fbink refuses to print an
+        # empty string and ABORTS THE WHOLE CALL with 255 when it meets one, so
+        # the blank line between these used to take the two lines after it down
+        # with it: the panel said "CrossPoint closed." and nothing about how to
+        # get back. A separate call per row also means one bad row cannot
+        # silence the others.
+        row=18
+        for line in \
             "CrossPoint closed." \
-            "" \
+            " " \
             "Press the power button to return" \
-            "to the Kindle." 2>&1
-        echo "  fbink: exit $?"
+            "to the Kindle."
+        do
+            "$FBINK" -q -m -y "$row" "$line" 2>&1
+            echo "  fbink row $row: exit $?"
+            row=$((row + 1))
+        done
     else
         echo "  fbink not found at $FBINK"
     fi

@@ -102,6 +102,18 @@ bool KindleFrameBuffer::begin() {
   return true;
 }
 
+bool KindleFrameBuffer::reopen() {
+  const uint16_t previousStride = static_cast<uint16_t>(stride);
+  end();
+  if (!begin()) {
+    std::fprintf(stderr, "[kindle] could not reopen /dev/fb0 after resume; the panel is no longer ours\n");
+    return false;
+  }
+  std::fprintf(stderr, "[kindle] reopened /dev/fb0: %ux%u, stride %u%s\n", panelWidth, panelHeight, stride,
+               previousStride != 0 && previousStride != stride ? " (CHANGED across the suspend)" : "");
+  return true;
+}
+
 void KindleFrameBuffer::end() {
   if (hasPending) {
     waitComplete();
