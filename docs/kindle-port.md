@@ -181,6 +181,59 @@ bytes**. Destination rows must step by the stride; stepping by width walks
 each row 8px further left than the last and shears the image.
 
 
+## How much of the SDK already crosses
+
+The app does not only lean on the SDK for the display. It also gets its book
+engine, UI toolkit, fonts and themes there, so "can CrossPoint run" is really
+a question about the SDK, not about `lib/hal/`.
+
+Measured by actually running the ARM cross-compiler over the sources, not by
+grepping for `esp_`:
+
+| SDK lib | Lines | Files touching ESP32 APIs |
+| --- | --- | --- |
+| FreeInkBook (EPUB engine) | 28752 | 0 of 77 |
+| FreeInkUI (UI toolkit) | 15363 | 1 of 51 |
+| FreeInkDisplay | 11144 | 23 of 44 (bypassed by this port) |
+| InputManager | 3963 | 3 of 5 |
+| BoardConfig | 2702 | 5 of 5 |
+
+**14 of the 15 library sources in FreeInkBook and FreeInkUI compile for
+`arm-kindlepw2-linux-gnueabi` as they stand.** The single failure is a missing
+third-party header (`tjpgd.h`), not a portability problem. The two biggest
+pieces of the reader, roughly 44k lines, want a compiler and nothing else.
+
+Getting there needed three shims, all under `lib/hal/kindle/arduino-shim/`,
+which goes first on the include path so `#include <Arduino.h>` inside the SDK
+resolves without editing the SDK:
+
+- `Arduino.h` forwards to `ArduinoCompat.h` and adds the core's vocabulary
+  (`byte`, `PROGMEM`, `pgm_read_*`, `constrain`, the no-op GPIO calls).
+- `driver/gpio.h` covers the three ESP-IDF names BoardConfig wants
+  (`gpio_num_t`, `gpio_hold_en`, `gpio_hold_dis`), all no-ops. They are not a
+  promise that pin latching works; if a Kindle profile ever needs a real GPIO,
+  this file should stop being a stub rather than keep returning success.
+- `esp_rom_sys.h` maps the ROM printf and busy-wait onto the ordinary ones.
+  They exist on the ESP32 because the ordinary ones are not always safe to
+  call; that constraint has no meaning in a Linux process.
+
+### The one structural item left
+
+With the shims in place the remaining error is not a portability failure, it
+is a question the build has not been asked to answer:
+
+    #error "FreeInk: no device selected. Pass at least one -DFREEINK_DEVICE_<NAME>"
+
+BoardConfig derives every capability from a device macro, and there is no
+Kindle among them. Adding `FREEINK_DEVICE_KINDLE` (with `CAP_TOUCH=1`,
+`CAP_FRONTLIGHT=0`) is the real remaining SDK work. It lives in the freeink-sdk
+submodule rather than this repo, so it needs a fork, the way the M5PaperS3 port
+carries its own.
+
+Building with an existing profile (`-DFREEINK_DEVICE_PAPERMONO`) confirms
+everything downstream of that decision compiles.
+
+
 ## Arduino compatibility
 
 The app tree is written against the Arduino core, and the port keeps it that
