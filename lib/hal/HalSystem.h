@@ -45,5 +45,14 @@ bool applicationExitRequested();
 // CLOCK_MONOTONIC stops while suspended and CLOCK_BOOTTIME keeps counting. The
 // gap between how much each advanced IS the time spent asleep.
 bool resumedFromSuspend(uint32_t* millisAsleep = nullptr);
+
+// Is the reader's storage actually mounted right now?
+//
+// It is not, for as long as the Kindle is presenting itself to a host as a USB
+// mass storage device: the framework unmounts /mnt/us so the host can own the
+// filesystem, and everything the reader draws a page from vanishes with it.
+// The mount point stays behind as an empty directory, so this asks after a
+// file that only exists when the real filesystem is there.
+bool storageIsAttached();
 #endif
 }  // namespace HalSystem

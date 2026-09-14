@@ -661,13 +661,32 @@ void loop() {
   // any blanking, and this reads device memory.
   static unsigned long nextPanelCheckAt = 0;
   static uint8_t consecutiveRepaints = 0;
+  static bool storageWasAttached = true;
   // A cap, because the framework is a persistent writer during USB mass storage
   // and repainting over it forever would be a fight this process should lose:
   // the user wants the "connected" screen then, not the reader.
   static constexpr uint8_t MAX_CONSECUTIVE_REPAINTS = 4;
   if (millis() >= nextPanelCheckAt) {
     nextPanelCheckAt = millis() + 400;
-    if (!display.panelContentWasReplaced()) {
+    if (!HalSystem::storageIsAttached()) {
+      // USB mass storage: the framework has unmounted /mnt/us so the host can
+      // own it, and it is painting its own "connected" screen. Both reasons to
+      // keep out. Repainting here drew a page whose file had gone away, which
+      // is to say it painted the screen white, which is the very thing this
+      // check exists to stop.
+      if (storageWasAttached) {
+        storageWasAttached = false;
+        std::fprintf(stderr, "[kindle] storage detached (USB host); leaving the panel to the framework\n");
+      }
+      consecutiveRepaints = 0;
+    } else if (!storageWasAttached) {
+      // Back from USB. The framework owns the glass at this moment, so say so
+      // and let the next check repaint over it, rather than racing the
+      // remount with a page read.
+      storageWasAttached = true;
+      std::fprintf(stderr, "[kindle] storage reattached\n");
+      consecutiveRepaints = 0;
+    } else if (!display.panelContentWasReplaced()) {
       consecutiveRepaints = 0;  // our paint stuck; the field is ours again
     } else if (consecutiveRepaints < MAX_CONSECUTIVE_REPAINTS) {
       ++consecutiveRepaints;

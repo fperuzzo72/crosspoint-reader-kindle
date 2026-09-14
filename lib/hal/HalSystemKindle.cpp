@@ -20,6 +20,8 @@
 
 #include <BoardConfig.h>
 
+#include <unistd.h>
+
 #include <cstdio>
 #include <csignal>
 #include <ctime>
@@ -81,6 +83,12 @@ bool clocksInitialised = false;
 bool clocksUsable = true;
 
 }  // namespace
+
+bool storageIsAttached() {
+  // The binary this process is running from. It cannot be absent while the
+  // filesystem is mounted, and it cannot be present while it is not.
+  return access("/mnt/us/crosspoint/crosspoint", F_OK) == 0;
+}
 
 bool resumedFromSuspend(uint32_t* const millisAsleep) {
   if (!clocksUsable) {
