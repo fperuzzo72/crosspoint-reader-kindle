@@ -115,7 +115,10 @@ it is meant never to change. Everything that does change lives in `run.sh`,
 which is executed from `/tmp` so that replacing it during a session cannot
 corrupt the session. The binary is copied to RAM for the same reason.
 
-Books go in `/mnt/us/ebooks`, which is `ebooks/` on the mounted volume.
+Books go in `/mnt/us/ebooks`, which is `ebooks/` on the mounted volume. Sleep
+wallpapers go in `/.sleep`, and only BMP is read there; `tools/kindle/
+make-sleep-images.py` converts a folder of them to the panel's 600x800 at 4 bits
+per pixel, which is one sixth the size of 24-bit at no visible cost.
 Eject, and `crosspoint.sh` appears on the home screen as if it were a book.
 Opening it runs the reader. Everything the run prints lands in
 `/mnt/us/crosspoint-run.log`, which is the only window into a session once the
