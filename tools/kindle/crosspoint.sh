@@ -11,7 +11,7 @@
 # to die than to work, and the log is the whole point of the run.
 BASE=/mnt/us/crosspoint
 LOG=/mnt/us/crosspoint-run.log
-RUN_SECONDS=60
+RUN_SECONDS=120
 
 {
     echo "=== CrossPoint run: $(date) ==="
