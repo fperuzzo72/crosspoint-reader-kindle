@@ -8,6 +8,8 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstdarg>
+#include <cstdio>
 
 namespace {
 
@@ -71,3 +73,38 @@ void EspClass::restart() const {
   // Only reached if exec failed; the caller was promised this never returns.
   _exit(1);
 }
+
+// ---------------------------------------------------------------- Serial ---
+
+SerialClass Serial;
+SerialClass Serial0;
+
+void SerialClass::flush() const { fflush(stderr); }
+
+void SerialClass::print(const char* s) const { fputs(s != nullptr ? s : "", stderr); }
+void SerialClass::print(const char c) const { fputc(c, stderr); }
+void SerialClass::print(const int v) const { fprintf(stderr, "%d", v); }
+void SerialClass::print(const unsigned v) const { fprintf(stderr, "%u", v); }
+void SerialClass::print(const long v) const { fprintf(stderr, "%ld", v); }
+void SerialClass::print(const unsigned long v) const { fprintf(stderr, "%lu", v); }
+void SerialClass::print(const double v) const { fprintf(stderr, "%f", v); }
+
+void SerialClass::println() const { fputc('\n', stderr); }
+void SerialClass::println(const char* s) const { print(s); println(); }
+void SerialClass::println(const char c) const { print(c); println(); }
+void SerialClass::println(const int v) const { print(v); println(); }
+void SerialClass::println(const unsigned v) const { print(v); println(); }
+void SerialClass::println(const long v) const { print(v); println(); }
+void SerialClass::println(const unsigned long v) const { print(v); println(); }
+void SerialClass::println(const double v) const { print(v); println(); }
+
+int SerialClass::printf(const char* fmt, ...) const {
+  va_list args;
+  va_start(args, fmt);
+  const int n = vfprintf(stderr, fmt, args);
+  va_end(args);
+  return n;
+}
+
+size_t SerialClass::write(const uint8_t c) const { return fwrite(&c, 1, 1, stderr); }
+size_t SerialClass::write(const uint8_t* buf, const size_t len) const { return fwrite(buf, 1, len, stderr); }

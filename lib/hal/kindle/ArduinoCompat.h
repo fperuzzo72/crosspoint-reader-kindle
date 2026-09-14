@@ -137,3 +137,53 @@ class EspClass {
 };
 
 extern EspClass ESP;
+
+// ---------------------------------------------------------------- Serial ---
+//
+// The SDK logs through Serial and picks a transport from it in BoardConfig.
+// On a Kindle there is no UART worth talking to: the useful place for a
+// diagnostic is stderr, which the launching scriptlet already redirects into a
+// log on the card. So this is Serial-shaped and writes there.
+//
+// Only the members the tree calls exist, same rule as everything else here.
+class SerialClass {
+ public:
+  void begin(unsigned long = 0) const {}
+  void end() const {}
+  explicit operator bool() const { return true; }
+  void flush() const;
+
+  void print(const char* s) const;
+  void print(const String& s) const { print(s.c_str()); }
+  void print(char c) const;
+  void print(int v) const;
+  void print(unsigned v) const;
+  void print(long v) const;
+  void print(unsigned long v) const;
+  void print(double v) const;
+
+  void println() const;
+  void println(const char* s) const;
+  void println(const String& s) const { println(s.c_str()); }
+  void println(char c) const;
+  void println(int v) const;
+  void println(unsigned v) const;
+  void println(long v) const;
+  void println(unsigned long v) const;
+  void println(double v) const;
+
+  int printf(const char* fmt, ...) const __attribute__((format(printf, 2, 3)));
+
+  // Nothing feeds an input stream here.
+  int available() const { return 0; }
+  int read() const { return -1; }
+  size_t write(uint8_t c) const;
+  size_t write(const uint8_t* buf, size_t len) const;
+};
+
+extern SerialClass Serial;
+// Sticky selects Serial0 explicitly; alias it so that branch also compiles.
+extern SerialClass Serial0;
+
+using HardwareSerial = SerialClass;
+
