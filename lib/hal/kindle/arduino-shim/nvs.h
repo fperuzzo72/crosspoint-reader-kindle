@@ -1,4 +1,6 @@
 #pragma once
+// esp_err_t and ESP_OK come from here, as they do in ESP-IDF.
+#include "esp_err.h"
 // ESP-IDF's key/value store lives in a flash partition. Settings here live in
 // files on a real filesystem, which is what HalStorage already uses, so there
 // is nothing for this to back onto. Reports failure rather than losing writes

@@ -21,6 +21,17 @@ inline void taskYIELD() { sched_yield(); }
 // returned immediately would turn a blocking wait into a busy loop, and one
 // that never returned would deadlock. Both are worse than the real thing,
 // which is a counter and a condition variable per task.
+// How a notification combines with the value already there. Only eIncrement is
+// used by this tree, and it is what ulTaskNotifyTake pairs with.
+enum eNotifyAction {
+  eNoAction,
+  eSetBits,
+  eIncrement,
+  eSetValueWithOverwrite,
+  eSetValueWithoutOverwrite,
+};
+
 uint32_t ulTaskNotifyTake(BaseType_t clearOnExit, TickType_t timeoutTicks);
+BaseType_t xTaskNotify(TaskHandle_t task, uint32_t value, eNotifyAction action);
 BaseType_t xTaskNotifyGive(TaskHandle_t task);
 TaskHandle_t xTaskGetCurrentTaskHandle();

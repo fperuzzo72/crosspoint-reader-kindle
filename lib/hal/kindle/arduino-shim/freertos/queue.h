@@ -13,6 +13,7 @@
 #include <cstring>
 
 #include "FreeRTOS.h"
+#include "semphr.h"
 
 struct QueueDefinition {
   pthread_mutex_t lock;
@@ -33,4 +34,13 @@ void vQueueDelete(QueueHandle_t q);
 BaseType_t xQueueSend(QueueHandle_t q, const void* item, TickType_t timeoutTicks);
 BaseType_t xQueueReceive(QueueHandle_t q, void* item, TickType_t timeoutTicks);
 UBaseType_t uxQueueMessagesWaiting(QueueHandle_t q);
+// Read the head without removing it.
+BaseType_t xQueuePeek(QueueHandle_t q, void* item, TickType_t timeoutTicks);
+
+// In FreeRTOS a semaphore IS a queue: SemaphoreHandle_t is a typedef of
+// QueueHandle_t, and code peeks a mutex to ask whether it is currently free
+// without taking it. This shim keeps the two as distinct types, so that usage
+// needs its own overload rather than an implicit conversion that would be a
+// lie about what the pointer is.
+BaseType_t xQueuePeek(SemaphoreHandle_t sem, void* item, TickType_t timeoutTicks);
 void xQueueReset(QueueHandle_t q);

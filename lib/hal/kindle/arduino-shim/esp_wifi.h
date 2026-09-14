@@ -1,4 +1,6 @@
 #pragma once
+// esp_err_t and ESP_OK come from here, as they do in ESP-IDF.
+#include "esp_err.h"
 // ESP-IDF's low-level Wi-Fi driver. There is no radio for this process to
 // drive here; see WiFi.h for the reasoning. Every call reports failure.
 #include <cstdint>

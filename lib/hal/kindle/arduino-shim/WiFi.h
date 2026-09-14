@@ -51,6 +51,19 @@ using wifi_mode_t = uint8_t;
 #define WIFI_MODE_AP 2
 #define WIFI_MODE_APSTA 3
 
+// Arduino's scan-state sentinels. Scanning is not available here, so
+// scanComplete() always reports FAILED rather than leaving a caller polling
+// RUNNING forever.
+// Scan strategy selectors. Scanning is unavailable here, so these only exist
+// for the setScanMethod/setSortMethod calls that pass them.
+#define WIFI_FAST_SCAN 0
+#define WIFI_ALL_CHANNEL_SCAN 1
+#define WIFI_CONNECT_AP_BY_SIGNAL 0
+#define WIFI_CONNECT_AP_BY_SECURITY 1
+
+#define WIFI_SCAN_RUNNING (-1)
+#define WIFI_SCAN_FAILED (-2)
+
 #define WIFI_AUTH_OPEN 0
 #define WIFI_AUTH_WPA2_PSK 3
 
@@ -80,7 +93,7 @@ class WiFiClass {
   IPAddress softAPIP() { return IPAddress(); }
   uint8_t softAPgetStationNum() { return 0; }
   int16_t scanNetworks(bool async = false);
-  int16_t scanComplete() { return -2; }  // Arduino's WIFI_SCAN_FAILED
+  int16_t scanComplete() { return WIFI_SCAN_FAILED; }
   void scanDelete() {}
   String SSID(uint8_t index);  // index unused: scanning is not available here
   int32_t RSSI(uint8_t index);

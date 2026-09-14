@@ -1,4 +1,6 @@
 #pragma once
+// esp_err_t and ESP_OK come from here, as they do in ESP-IDF.
+#include "esp_err.h"
 // OTA has no analogue here: this build is a file on a filesystem, not an image
 // in a flash slot, and it updates by being copied over. Enough shape to link;
 // every operation reports failure rather than pretending to have flashed.

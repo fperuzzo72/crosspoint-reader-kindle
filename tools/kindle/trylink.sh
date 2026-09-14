@@ -40,6 +40,18 @@ DEF="-DFREEINK_DEVICE_KINDLE=1"
 # refuses to build without them.
 CDEFS="-DXML_GE=0 -DXML_CONTEXT_BYTES=1024"
 
+# Header changes are invisible to a source-vs-object timestamp check, and this
+# port edits shim headers constantly: without this, a run after touching
+# Arduino.h would reuse every stale object and report a number that was true
+# ten edits ago. Rather than track real dependencies, the newest header under
+# the shim wins: if it is newer than an object, that object is rebuilt.
+NEWEST_HEADER=$(find lib/hal/kindle -name '*.h' -newer "$OUT/.stamp" 2>/dev/null | head -1)
+if [ ! -f "$OUT/.stamp" ] || [ -n "$NEWEST_HEADER" ]; then
+    echo "--- shim headers changed, discarding objects ---"
+    rm -f "$OUT"/*.o
+fi
+touch "$OUT/.stamp"
+
 # A real helper script rather than an exported shell function: the container's
 # /bin/sh is dash, `export -f` is a bashism, and using one made every parallel
 # worker fail silently.
@@ -62,10 +74,26 @@ chmod +x "$OUT/cc-one.sh"
 # FreeInkDisplay/src is the panel driver stack: PanelDriver implementations and
 # the EpdBus they talk through. HalDisplay bypasses all of it on this target,
 # so compiling it only yields objects referencing a bus that cannot exist here.
-find src lib freeink-sdk/libs -name '*.cpp' 2>/dev/null \
+# tools/ carries main_kindle.cpp, which supplies the main() the Arduino core
+# used to. Leaving the directory out is why `main` itself came back undefined.
+{ find src lib freeink-sdk/libs -name '*.cpp' 2>/dev/null; echo tools/kindle/main_kindle.cpp; } \
   | grep -vE '/test/|/tools/|FBInk' \
   | grep -vE 'FreeInkDisplay/src/' > "$OUT/sources.txt"
-find lib/expat lib/miniz lib/uzlib -name '*.c' 2>/dev/null > "$OUT/csources.txt"
+# Every C source under lib/, not just the three obvious third-party trees:
+# lib/MiniBidi/minibidi.c is one, and leaving it out made bidi_class look like
+# a missing symbol rather than a file nobody had compiled.
+# libunibreak ships with FBInk and provides set_linebreaks_utf8, which
+# FreeInkBook's chapter layout calls. Its headers were already on the include
+# path; its sources were not being built.
+# C sources live in three places, and missing any of them makes a whole
+# library look like undefined symbols rather than an uncompiled file:
+#   lib/                 expat, miniz, uzlib, minibidi
+#   freeink-sdk/libs/    the SDK vendors ITS OWN miniz and libunibreak, with
+#                        different symbol prefixes from CrossPoint's copies
+#   FBInk/libunibreak    only as a fallback; the SDK's copy wins if present
+{ find lib -name '*.c' 2>/dev/null
+  find freeink-sdk/libs -name '*.c' 2>/dev/null
+} > "$OUT/csources.txt"
 
 echo "--- compiling ($(wc -l < "$OUT/sources.txt" | tr -d ' ') C++, $(wc -l < "$OUT/csources.txt" | tr -d ' ') C, -j$JOBS, incremental) ---"
 cat "$OUT/sources.txt" "$OUT/csources.txt" | xargs -P "$JOBS" -n1 "$OUT/cc-one.sh"

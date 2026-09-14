@@ -312,6 +312,42 @@ BaseType_t xQueueReceive(const QueueHandle_t q, void* item, const TickType_t tim
   return pdPASS;
 }
 
+BaseType_t xQueuePeek(const QueueHandle_t q, void* item, const TickType_t timeoutTicks) {
+  if (q == nullptr || item == nullptr) {
+    return pdFAIL;
+  }
+  pthread_mutex_lock(&q->lock);
+  while (q->count == 0) {
+    if (!waitOn(q->notEmpty, q->lock, timeoutTicks)) {
+      pthread_mutex_unlock(&q->lock);
+      return pdFAIL;
+    }
+  }
+  // Copy without consuming, and without signalling notFull: nothing left.
+  std::memcpy(item, q->storage + q->head * q->itemSize, q->itemSize);
+  pthread_mutex_unlock(&q->lock);
+  return pdPASS;
+}
+
+BaseType_t xQueuePeek(const SemaphoreHandle_t sem, void*, const TickType_t) {
+  // Peeking a mutex-as-queue asks "is a token available", i.e. is it free.
+  // trylock answers that without blocking; releasing immediately leaves the
+  // state exactly as found.
+  //
+  // One honest caveat: on a RECURSIVE mutex the holding thread can trylock its
+  // own lock, so calling this from the holder reports "free". The tree's use
+  // (RenderLock::peek asking whether a render is in flight) is a query from a
+  // different thread, where this is correct.
+  if (sem == nullptr) {
+    return pdFAIL;
+  }
+  if (pthread_mutex_trylock(sem) != 0) {
+    return pdFAIL;  // held
+  }
+  pthread_mutex_unlock(sem);
+  return pdTRUE;
+}
+
 UBaseType_t uxQueueMessagesWaiting(const QueueHandle_t q) {
   if (q == nullptr) {
     return 0;
@@ -527,4 +563,22 @@ BaseType_t xTaskNotifyGive(const TaskHandle_t task) {
   pthread_cond_signal(&n->cond);
   pthread_mutex_unlock(&g_notifyLock);
   return pdPASS;
+}
+
+BaseType_t xTaskNotify(const TaskHandle_t task, const uint32_t value, const eNotifyAction action) {
+  // Only eIncrement is used here, and it is exactly what Give does. Any other
+  // action would need the full 32-bit notification value, which this table
+  // does not carry, so it reports failure rather than silently doing the
+  // wrong arithmetic.
+  if (action != eIncrement) {
+    return pdFAIL;
+  }
+  (void)value;
+  return xTaskNotifyGive(task);
+}
+
+TaskHandle_t xSemaphoreGetMutexHolder(const SemaphoreHandle_t) {
+  // pthreads has no portable owner query. Null means "free" to every caller
+  // here, which makes the debug assertions vacuous rather than wrong.
+  return nullptr;
 }

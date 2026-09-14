@@ -1,4 +1,6 @@
 #pragma once
+// esp_err_t and ESP_OK come from here, as they do in ESP-IDF.
+#include "esp_err.h"
 
 // Deep sleep is the kernel's business on this target, not ours: a Kindle
 // suspends itself and a reader process has no say in it. These exist so the

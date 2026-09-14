@@ -41,10 +41,9 @@ using gpio_num_t = int32_t;
 #define GPIO_NUM_20 20
 #define GPIO_NUM_21 21
 
-using esp_err_t = int32_t;
-#ifndef ESP_OK
-#define ESP_OK 0
-#endif
+// esp_err_t and ESP_OK live in esp_err.h, as they do in ESP-IDF; defining them
+// here too would be a redefinition wherever both are included.
+#include "../esp_err.h"
 
 #define GPIO_MODE_DISABLE 0
 #define GPIO_MODE_INPUT 1

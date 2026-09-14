@@ -321,3 +321,38 @@ void sha1(const uint8_t* data, const size_t length, uint8_t digest[20]) {
     digest[i * 4 + 3] = static_cast<uint8_t>(h[i] & 0xFF);
   }
 }
+
+// ------------------------------------------------------------ mbedtls ---
+//
+// Forwarded to the implementations above rather than stubbed: these encode and
+// decode stored credentials, and a wrong answer corrupts them silently.
+
+#include "arduino-shim/mbedtls/base64.h"
+
+int mbedtls_base64_encode(unsigned char* dst, const size_t dlen, size_t* olen, const unsigned char* src,
+                          const size_t slen) {
+  const String encoded = base64::encode(src, slen);
+  const size_t needed = encoded.length() + 1;  // mbedtls counts the NUL
+  if (olen != nullptr) {
+    *olen = needed;
+  }
+  // mbedtls's documented probe: a null destination asks only for the size.
+  if (dst == nullptr || dlen < needed) {
+    return MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL;
+  }
+  std::memcpy(dst, encoded.c_str(), needed);
+  return 0;
+}
+
+int mbedtls_base64_decode(unsigned char* dst, const size_t dlen, size_t* olen, const unsigned char* src,
+                          const size_t slen) {
+  const String decoded = base64::decode(String(std::string(reinterpret_cast<const char*>(src), slen)));
+  if (olen != nullptr) {
+    *olen = decoded.length();
+  }
+  if (dst == nullptr || dlen < decoded.length()) {
+    return MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL;
+  }
+  std::memcpy(dst, decoded.c_str(), decoded.length());
+  return 0;
+}

@@ -32,6 +32,11 @@
 #include <cstdlib>
 #include <cstring>
 
+// The tree uses these without their own includes, the way the real core lets
+// it: <algorithm> for any_of/find_if, <string> for std::string in signatures.
+#include <algorithm>
+#include <string>
+
 // Arduino spells these in its own vocabulary. A handful of SDK headers use
 // them in signatures, so they have to exist even where nothing calls them.
 using boolean = bool;
@@ -100,6 +105,27 @@ inline uint32_t analogReadMilliVolts(uint8_t) { return 0; }
 // diagnostics and for scaling busy-waits, not for timing correctness; the i.MX6
 // in this device runs at 1 GHz.
 inline uint32_t getCpuFrequencyMhz() { return 1000; }
+
+// BSD string copies. glibc does not ship them; the ESP32 core does, and the
+// tree uses them for their truncation guarantee. Reimplemented rather than
+// mapped onto strncpy, which does NOT guarantee termination.
+inline size_t strlcpy(char* dst, const char* src, const size_t size) {
+  const size_t srcLen = std::strlen(src);
+  if (size != 0) {
+    const size_t copy = srcLen < size - 1 ? srcLen : size - 1;
+    std::memcpy(dst, src, copy);
+    dst[copy] = '\0';
+  }
+  return srcLen;  // the length it TRIED to create, so callers can detect truncation
+}
+
+inline size_t strlcat(char* dst, const char* src, const size_t size) {
+  const size_t dstLen = std::strlen(dst);
+  if (dstLen >= size) {
+    return size + std::strlen(src);
+  }
+  return dstLen + strlcpy(dst + dstLen, src, size - dstLen);
+}
 inline bool setCpuFrequencyMhz(uint32_t) { return false; }
 inline void analogReadResolution(uint8_t) {}
 

@@ -20,6 +20,7 @@
 // whereas a stub that silently does the wrong thing at runtime is not.
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 // ---------------------------------------------------------------- String ---
@@ -94,6 +95,18 @@ class String {
   }
   bool concat(const char* s, size_t n) { return write(s, n) == n; }
 
+  // ArduinoJson's Reader<String> pulls characters out one at a time. The real
+  // Arduino String is special-cased inside the library; this one takes the
+  // generic path, which expects a stream-like read().
+  int read() { return readPos < buf.size() ? static_cast<uint8_t>(buf[readPos++]) : -1; }
+  size_t readBytes(char* out, size_t n) {
+    const size_t left = buf.size() - readPos;
+    const size_t take = n < left ? n : left;
+    std::memcpy(out, buf.data() + readPos, take);
+    readPos += take;
+    return take;
+  }
+
   const std::string& str() const { return buf; }
 
   String& operator+=(const String& rhs) {
@@ -121,6 +134,8 @@ class String {
 
  private:
   std::string buf;
+  // Only touched by the ArduinoJson reader path above.
+  size_t readPos = 0;
 };
 
 // ---------------------------------------------------------------- timing ---
