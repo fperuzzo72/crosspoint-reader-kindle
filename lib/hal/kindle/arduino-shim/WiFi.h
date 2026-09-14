@@ -79,9 +79,10 @@ class WiFiClass {
   int16_t scanNetworks(bool async = false);
   int16_t scanComplete() { return -2; }  // Arduino's WIFI_SCAN_FAILED
   void scanDelete() {}
-  String SSID(uint8_t index);
+  String SSID(uint8_t index);  // index unused: scanning is not available here
   int32_t RSSI(uint8_t index);
-  uint8_t encryptionType(uint8_t index) { return WIFI_AUTH_OPEN; }
+  // No scan results exist to describe, so the index names nothing.
+  uint8_t encryptionType(uint8_t) { return WIFI_AUTH_OPEN; }
 
   // --- policy knobs with nothing to set ------------------------------------
   // Radio power, reconnection and roaming are the system's. Accepted so the

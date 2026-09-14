@@ -56,6 +56,7 @@ using word = uint16_t;
 #define IRAM_ATTR
 #define DRAM_ATTR
 #define RTC_DATA_ATTR
+#define RTC_NOINIT_ATTR
 #define EXT_RAM_ATTR
 #endif
 #define pgm_read_byte(addr) (*reinterpret_cast<const uint8_t*>(addr))

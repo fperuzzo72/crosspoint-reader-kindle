@@ -134,7 +134,7 @@ void WebServer::begin(const uint16_t port) {
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
   addr.sin_port = htons(port);
   if (bind(listenFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 || listen(listenFd, 4) != 0) {
-    close(listenFd);
+    ::close(listenFd);
     listenFd = -1;
     return;
   }
@@ -146,7 +146,7 @@ void WebServer::begin(const uint16_t port) {
 
 void WebServer::stop() {
   if (listenFd >= 0) {
-    close(listenFd);
+    ::close(listenFd);
     listenFd = -1;
   }
   activeClient.stop();

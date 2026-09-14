@@ -42,9 +42,13 @@ class FsFile : public Stream {
   explicit operator bool() const { return isOpen(); }
 
   int read(void* buf, size_t count);
+  int read(uint8_t* buf, size_t count) override;
   int read() override;
   int peek() override;
   int available() override;
+  // Same name-hiding trap as WiFiClient: without this, write("literal")
+  // resolves against the uint8_t overload instead of Print's char* one.
+  using Print::write;
   size_t write(uint8_t c) override;
   size_t write(const uint8_t* buf, size_t count) override;
   size_t write(const void* buf, size_t count);

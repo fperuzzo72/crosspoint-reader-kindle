@@ -199,7 +199,7 @@ bool WiFiClass::disconnect(bool, bool) { return false; }
 bool WiFiClass::softAP(const char*, const char*) { return false; }
 bool WiFiClass::softAPdisconnect(bool) { return false; }
 int16_t WiFiClass::scanNetworks(bool) { return 0; }
-String WiFiClass::SSID(uint8_t) { return String(); }
+String WiFiClass::SSID(uint8_t) { return String(); }  // no scan results to name
 int32_t WiFiClass::RSSI(uint8_t) { return 0; }
 
 // ----------------------------------------------------------- WiFiClient ---

@@ -21,8 +21,8 @@ INC="-I$OUT/FBInk/libunibreak/src -I$OUT/thirdparty -I$OUT/FBInk"
 INC="$INC -Ilib/hal/kindle/arduino-shim"
 for d in $(find freeink-sdk/libs -type d -name include); do INC="$INC -I$d"; done
 for d in lib/*/; do INC="$INC -I${d%/}"; done
-INC="$INC -Ilib/uzlib/src -Ilib/hal/kindle -Ilib/hal -Isrc -Ilib"
-INC="$INC -Isrc/components -Isrc/activities -Isrc/util -Isrc/network"
+INC="$INC -Ilib/miniz/src -Ilib/uzlib/src -Ilib/hal/kindle -Ilib/hal -Isrc -Ilib"
+INC="$INC -DCROSSPOINT_VERSION=\\"kindle-dev\\" -Isrc/components -Isrc/activities -Isrc/util -Isrc/network"
 
 mkdir -p "$OUT"
 : > "$OUT/census-errors.txt"

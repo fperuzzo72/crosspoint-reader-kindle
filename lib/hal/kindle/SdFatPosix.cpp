@@ -190,7 +190,7 @@ bool FsFile::openNext(FsFile* entry, const oflag_t flags) {
     if (std::strcmp(e->d_name, ".") == 0 || std::strcmp(e->d_name, "..") == 0) {
       continue;
     }
-    char child[512];
+    char child[1024];  // path + NAME_MAX, so the compiler can prove no truncation
     std::snprintf(child, sizeof(child), "%s/%s", path, e->d_name);
     if (entry->open(child, flags)) {
       return true;
@@ -241,3 +241,5 @@ FsFile SdFs::open(const char* p, const oflag_t flags) {
   f.open(p, flags);
   return f;
 }
+
+int FsFile::read(uint8_t* buf, const size_t count) { return read(static_cast<void*>(buf), count); }

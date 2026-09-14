@@ -21,13 +21,16 @@ class NetworkUdp : public Stream {
   int beginPacket(IPAddress ip, uint16_t port);
   int endPacket();
 
+  // Without this, the overrides below HIDE Print's write(const char*) and
+  // every write("literal") fails to compile against the uint8_t overload.
+  using Print::write;
   size_t write(uint8_t c) override;
   size_t write(const uint8_t* buf, size_t size) override;
 
   int parsePacket();
   int available() override;
   int read() override;
-  int read(uint8_t* buf, size_t size);
+  int read(uint8_t* buf, size_t size) override;
   int peek() override;
   void flush() override {}
 

@@ -65,10 +65,20 @@ target_include_directories(crosspoint_kindle_platform PUBLIC
   ${BUILD_DIR}/thirdparty
   ${REPO_ROOT}/lib
   ${REPO_ROOT}/lib/uzlib/src
+  ${REPO_ROOT}/lib/miniz/src
   ${REPO_ROOT}/src
 )
 
-target_compile_definitions(crosspoint_kindle_platform PUBLIC FREEINK_DEVICE_KINDLE=1)
+# platformio.ini injects this from its [crosspoint] section; a build outside
+# PlatformIO has to supply it or the version string is simply absent.
+if(NOT CROSSPOINT_VERSION)
+  set(CROSSPOINT_VERSION "kindle-dev")
+endif()
+
+target_compile_definitions(crosspoint_kindle_platform PUBLIC
+  FREEINK_DEVICE_KINDLE=1
+  CROSSPOINT_VERSION="${CROSSPOINT_VERSION}"
+)
 target_compile_options(crosspoint_kindle_platform PRIVATE -Wall -Wextra)
 
 # clock_gettime lives in librt in glibc before 2.17, and this target predates
