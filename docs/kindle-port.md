@@ -472,8 +472,10 @@ Done:
   presses and swipes.
 - Arduino, FreeRTOS, SdFat, networking and crypto surfaces, enough for a tree
   written against a microcontroller to compile against glibc.
-- Sleeping and waking, which turned out to be two problems wearing one
-  symptom. On the way in, the Kindle's UI blanks the framebuffer it SHARES with
+- Sleeping and waking, confirmed on the device from inside a book and from the
+  main menu: the screen the device slept on is the screen it wakes to. It took
+  four wrong turns to get there, so they are worth keeping: the symptom was two
+  problems wearing one face; On the way in, the Kindle's UI blanks the framebuffer it SHARES with
   this process, so our pixels are replaced in the mapping we both hold; 96
   sample points checked every 400ms catch that, and a difference is positive
   evidence of a second writer, which no amount of successful writing could
@@ -483,6 +485,28 @@ Done:
   asleep. Measured on device: 4759s monotonic against 6763s boottime at one
   launch, and a 64719ms suspend detected across one press of the power button.
   No lipc listener, no sysfs watch, no new dependency.
+
+  Of the two, the content detector is the primary one and the clocks are the
+  secondary, which is the opposite of how this was first built. Most power
+  button presses blank the screen without the machine suspending at all, and
+  those sessions carry no "resumed after" line while the reader still comes
+  back correctly.
+
+  Three calibration mistakes are recorded here because each looked like a
+  different bug. The threshold started at a quarter of the sample points,
+  justified by "a blanking pass changes nearly everything" — true of the panel
+  and false of the samples, since a page of text is already almost entirely
+  white and clearing it only touches the pixels that carried ink. It could not
+  fire for the case it existed to catch. Then, made sensitive, it began seeing
+  its own writing: displayGrayscaleBase() stages a base with no waveform, and
+  the sample was only recorded where a waveform was issued, so the window
+  between staging and committing looked like an intruder and the repaint it
+  provoked staged again. The log showed that as repainting (1) over and over,
+  a rising count being the signature of a real intruder and a flat one the
+  signature of a loop. And the repaint had to learn to keep out while the host
+  owns the storage: during USB mass storage /mnt/us is unmounted, so a repaint
+  drew a page whose file had gone away, which is to say it painted the screen
+  white.
 - Grayscale: the renderer's two 1bpp planes composed into the 8bpp frame the
   EPDC wants. The ESP32's two-waveform sequence collapses to one here, because
   panel memory is just bytes.
