@@ -456,59 +456,78 @@ the same fix rather than waiting for it to bite.
 
 ## State
 
+It runs. The reader opens EPUBs on the device, in portrait, with touch, and
+leaves through its own menu. What follows is what that took and what it did not
+reach, kept in the order the questions were actually answered.
+
 Done:
 
-- Device jailbroken and verified.
-- Target ABI measured.
-- Cross-toolchain image defined (`docker/toolchain.Dockerfile`).
-- Display backend written (`lib/hal/kindle/`).
-- Arduino compatibility shim written (`lib/hal/kindle/ArduinoCompat.h`).
-- Host tests green: 5 for the 1bpp -> 8bpp expansion, 11 for String semantics.
-- On-device smoke test, its cross-build and its launch scriptlet
-  (`tools/kindle/`).
-- Toolchain built and the smoke test cross-compiled. The output is
-  byte-identical in ABI to the device's own binaries: `e_flags 0x05000200`,
-  `/lib/ld-linux.so.3`, `for GNU/Linux 3.0.35`, the same triple of values read
-  off the stock `fbink`.
-- Binary and scriptlet installed on the device, awaiting one tap.
+- Target ABI measured, not assumed: `e_flags 0x05000200`, soft-float,
+  `/lib/ld-linux.so.3`, `for GNU/Linux 3.0.35`, a GLIBC_2.4 ceiling. The same
+  triple of values read off the device's own `fbink`.
+- Cross-toolchain image (`docker/toolchain.Dockerfile`).
+- Display backend over a direct `mmap` of `/dev/fb0`, with FBInk for the
+  refresh ioctls and its per-model quirk table.
+- Touch backend over evdev multi-touch protocol B, classified into taps, long
+  presses and swipes.
+- Arduino, FreeRTOS, SdFat, networking and crypto surfaces, enough for a tree
+  written against a microcontroller to compile against glibc.
+- Grayscale: the renderer's two 1bpp planes composed into the 8bpp frame the
+  EPDC wants. The ESP32's two-waveform sequence collapses to one here, because
+  panel memory is just bytes.
+- Zero undefined references at link. 3.2 MB stripped.
+- Host tests for the pure pieces: the 1bpp to 8bpp expansion, the gray plane
+  composition, and String semantics.
+
+Measured on the device, not inferred:
+
+- A full refresh submits in 20 ms and completes in 498.
+- Touch: 9 taps, 2 long presses and 14 swipes classified in one session, with
+  both long presses firing at 572 ms, which is the 550 ms threshold plus one
+  30 ms poll. That is the timer doing exactly the job the silent panel will
+  not do for it.
+- The framebuffer stride is 608 bytes for a 600 px panel. Writing rows back to
+  back shears the image progressively down the screen.
 
 Two things the first cross-compile turned up, both the target's age showing:
 
 - **`-lrt` is mandatory.** `clock_gettime` was only folded into libc in glibc
   2.17, and this target predates that. Without it the link fails on a symbol
-  the header declares perfectly happily. `ArduinoCompat` needs it too, so this
-  is a standing requirement of the port.
+  the header declares perfectly happily.
 - **`chmod +x` on `/mnt/us` may do nothing.** It is vfat, which stores no
   permission bits; the mount's `fmask` decides. The scriptlet falls back to
   invoking `/lib/ld-linux.so.3` directly, which works because the kernel is
   then asked to exec the loader rather than the file on the card.
 
-The display backend **runs on the device** and its output is verified by
-reading panel memory back, not assumed. So does touch: `touchtest` classified
-9 taps, 2 long presses and 14 swipes in one session, with both long presses
-firing at 572 ms (the 550 ms threshold plus one 30 ms poll), which is the
-timer doing exactly the job the silent panel will not do for it.
+Three lessons worth keeping, each of which cost real time:
 
-See "Measured on device" above.
+- **The first on-device run reported OK while every blit silently failed.**
+  `fbink_print_raw_data` sits behind `FBINK_WITH_IMAGE`, a `MINIMAL` build
+  compiles it out, and nothing checked its return, so the panel refreshed stale
+  contents and the timings looked plausible. A test that can pass without doing
+  its job is worse than no test. Hence the read-back probes.
 
-One lesson from getting there is worth keeping. The first on-device run
-reported OK while every blit silently failed: `fbink_print_raw_data` sits
-behind `FBINK_WITH_IMAGE`, a `MINIMAL` build compiles it out, and nothing
-checked its return, so the panel refreshed stale contents and the timings
-looked plausible. A test that can pass without doing its job is worse than no
-test. Hence the read-back probes.
+- **A macro that arrives transitively reads as 0 the day the include moves.**
+  Swapping one header for another dropped `BoardConfig.h`, `FREEINK_CAP_TOUCH`
+  became 0, and declarations vanished silently. The compiler reported a
+  mismatched definition somewhere else entirely.
 
-Next, roughly in order:
+- **Success returned by something that did nothing is the expensive failure.**
+  The first attempt at handing the screen back asked appmgrd to start the home
+  booklet. It returned 0 and repainted nothing, because home was already in the
+  foreground and the framework only redraws on a state change.
 
-1. Run `tools/kindle/smoketest.cpp` on the device. It answers the open
-   questions in one tap: real panel geometry and rotation, whether 600x800 is
-   what the kernel reports, whether the waveform mapping looks right, and what
-   each refresh actually costs in milliseconds.
-2. Close the remaining 27%, worst cause first. Networking is the big one.
-3. Wire `KindleTouchDevice` into `MappedInputManager` so the app sees gestures
-   through the interface it already has, rather than through a second path.
-4. `HalStorage`, `HalClock`, `HalSystem`, `HalPowerManager` on POSIX. These are
-   mechanical now that SdFat presents a filesystem.
-5. A build system for the target: `platformio.ini` is ESP32-only, so this needs
-   its own entry point, most likely CMake reusing the host-test conventions.
-   See `docs/kindle-build.md` for how the pieces are built today.
+Not reached, and why:
+
+1. **TLS.** Unimplemented, and HTTPS is refused rather than downgraded, because
+   the tree sends preemptive HTTP Basic credentials. This is the single item
+   that most limits the port in practice.
+2. **Multipart upload**, which gates the whole built-in web server: one route
+   registers an upload handler and `begin()` refuses to start.
+3. **Suspend and resume.** The process does not notice that the device slept,
+   so it never repaints on wake. `CLOCK_MONOTONIC` does not advance across a
+   suspend while `CLOCK_BOOTTIME` does, so detecting it needs no new
+   dependency; nothing has been written yet.
+4. **Broad runtime verification.** A great deal of this tree compiles and links
+   without ever having executed on the device. That is not the same as working,
+   and this document tries to be careful about which of the two it is claiming.
