@@ -16,6 +16,11 @@ LOG=/mnt/us/crosspoint-run.log
     echo "uname:  $(uname -a)"
     echo "free:   $(df -h /mnt/us 2>/dev/null | tail -1)"
     echo "binary: $(ls -l $BASE/crosspoint 2>&1)"
+    # Size and mtime are not enough to tell two builds apart: stripped ARM
+    # binaries land on section alignment, so an added function can come out to
+    # exactly the same byte count, and it has. A checksum ends the "did I run
+    # the new one?" question that cost a round of testing.
+    echo "cksum:  $( (cksum "$BASE/crosspoint" 2>/dev/null || md5sum "$BASE/crosspoint" 2>/dev/null) | head -1)"
     echo
 
     # How this boot started. Written at launch, so it describes the boot BEFORE
