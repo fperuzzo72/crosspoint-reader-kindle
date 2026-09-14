@@ -11,6 +11,12 @@
 BASE=/mnt/us/crosspoint
 LOG=/mnt/us/crosspoint-run.log
 
+# Keep the previous run. The log is truncated on every launch, so retrying
+# after a crash destroyed the only record of it: the fastest reaction to a
+# failure was also what erased its evidence. One generation back is enough,
+# because the interesting run is almost always the one just before this.
+[ -f "$LOG" ] && mv -f "$LOG" "$LOG.prev" 2>/dev/null
+
 {
     echo "=== CrossPoint run: $(date) ==="
     echo "uname:  $(uname -a)"
