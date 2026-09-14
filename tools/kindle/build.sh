@@ -1,12 +1,14 @@
 #!/bin/sh
-# Cross-compile the Kindle display smoke test. Runs INSIDE the toolchain
+# Cross-compile the Kindle on-device tools. Runs INSIDE the toolchain
 # container (docker/toolchain.Dockerfile), which already has
 # arm-kindlepw2-linux-gnueabi on PATH.
 #
 #   docker run --rm -v "$PWD:/src" crosspoint-kindle-tc:latest \
-#       sh tools/kindle/build-smoketest.sh
+#       sh tools/kindle/build.sh
 #
-# Output: build/kindle/smoketest, a soft-float ARM binary for the KT3.
+# Output: soft-float ARM binaries for the KT3 in build/kindle/:
+#   smoketest   display backend first light, verifies pixels land
+#   inputprobe  dumps the evdev devices and a capture of real touches
 set -eu
 
 CROSS_TC=arm-kindlepw2-linux-gnueabi
@@ -31,6 +33,9 @@ CROSS_TC="$CROSS_TC" make -C "$OUT/FBInk" \
     KINDLE=1 MINIMAL=1 DRAW=1 staticlib -j"$(nproc)"
 
 echo "--- building smoketest"
+# -lrt is not optional here: this toolchain targets a glibc old enough
+# (2.4-era, matching the device) that clock_gettime still lives in librt
+# rather than having been folded into libc, which happened in 2.17.
 "$CROSS_TC-g++" \
     -std=c++20 -Os -Wall -Wextra \
     -I "$OUT/FBInk" \
@@ -40,12 +45,19 @@ echo "--- building smoketest"
     lib/hal/kindle/KindleFrameBuffer.cpp \
     "$OUT/FBInk/Release/libfbink.a" \
     -lrt
-    # -lrt is not optional here: this toolchain targets a glibc old enough
-    # (2.4-era, matching the device) that clock_gettime still lives in librt
-    # rather than having been folded into libc, which happened in 2.17.
 
-"$CROSS_TC-strip" "$OUT/smoketest"
+echo "--- building inputprobe"
+# No FBInk here: this one only talks to evdev.
+"$CROSS_TC-g++" \
+    -std=c++20 -Os -Wall -Wextra \
+    -o "$OUT/inputprobe" \
+    tools/kindle/inputprobe.cpp
+
+for b in smoketest inputprobe; do
+    "$CROSS_TC-strip" "$OUT/$b"
+done
 
 echo "--- done"
-file "$OUT/smoketest"
-ls -l "$OUT/smoketest"
+for b in smoketest inputprobe; do
+    file "$OUT/$b"
+done
