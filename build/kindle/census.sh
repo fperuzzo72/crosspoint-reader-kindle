@@ -3,7 +3,7 @@ CROSS=arm-kindlepw2-linux-gnueabi-g++
 INC="-Ilib/hal/kindle/arduino-shim -Ibuild/kindle/FBInk/libunibreak/src -Ibuild/kindle/thirdparty -Ibuild/kindle/FBInk"
 for d in $(find freeink-sdk/libs -type d -name include); do INC="$INC -I$d"; done
 for d in lib/*/; do INC="$INC -I${d%/}"; done
-INC="$INC -Ilib/hal/kindle -Ilib/hal -Isrc -Ilib -Isrc/components -Isrc/activities -Isrc/util -Isrc/network"
+INC="$INC -Ilib/uzlib/src -Ilib/hal/kindle/arduino-shim -Ilib/hal/kindle -Ilib/hal -Isrc -Ilib -Isrc/components -Isrc/activities -Isrc/util -Isrc/network"
 DEF="-DFREEINK_DEVICE_KINDLE=1"
 : > build/kindle/census-errors.txt
 ok=0; fail=0

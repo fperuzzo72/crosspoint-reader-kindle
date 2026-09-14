@@ -48,6 +48,16 @@ using word = uint16_t;
 #ifndef PROGMEM
 #define PROGMEM
 #endif
+
+// ESP32 section attributes. They decide which memory a symbol lands in, which
+// matters on a chip with separate instruction RAM and cached flash. A Linux
+// process has one address space, so they are nothing.
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#define DRAM_ATTR
+#define RTC_DATA_ATTR
+#define EXT_RAM_ATTR
+#endif
 #define pgm_read_byte(addr) (*reinterpret_cast<const uint8_t*>(addr))
 #define pgm_read_word(addr) (*reinterpret_cast<const uint16_t*>(addr))
 #define pgm_read_dword(addr) (*reinterpret_cast<const uint32_t*>(addr))

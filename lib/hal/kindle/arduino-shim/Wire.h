@@ -12,6 +12,8 @@ class TwoWire {
   bool begin(int = -1, int = -1, uint32_t = 0) { return false; }
   void end() {}
   void setClock(uint32_t) {}
+  void setTimeOut(uint16_t) {}
+  uint16_t getTimeOut() { return 0; }
   void beginTransmission(uint8_t) {}
   uint8_t endTransmission(bool = true) { return 2; }  // 2 = NACK on address
   uint8_t requestFrom(uint8_t, uint8_t, bool = true) { return 0; }
