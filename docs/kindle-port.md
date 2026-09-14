@@ -140,6 +140,47 @@ map cleanly onto the `displayStart()`/`displayFinish()` split the SDK's
 Unlike the SPI panels, the EPDC copies the frame out at submission time, so
 the caller may reuse its framebuffer as soon as `displayStart()` returns.
 
+## Measured on device
+
+Kindle 8th gen (codename **Eanab**, platform Heisenberg, device id 617),
+kernel 3.10.53-lab126, armv7l. `tools/kindle/smoketest.cpp`, full-frame
+600x800 paints, pixels verified by reading panel memory back at three known
+points.
+
+| Waveform | Blocking total | Submit (async) | Waveform alone |
+| --- | --- | --- | --- |
+| `WFM_GC16`, flashing | 486 ms | 20 ms | ~478 ms |
+| `WFM_GL16` | 23 ms | 18 ms | ~5 ms |
+| `WFM_DU` | 23 ms | 18 ms | ~5 ms |
+
+Four things follow:
+
+- **A page turn costs ~23 ms.** Good for e-ink, and it leaves real headroom.
+- **The 1bpp -> 8bpp expansion is not a bottleneck.** Comparing against an
+  earlier run whose blit silently did nothing puts the whole full-screen
+  expansion at roughly 3-5 ms. It needs no lookup table and no optimising.
+- **The submit path dominates, not the waveform.** 18 ms of a 23 ms paint is
+  submission, of which only 3-5 ms is the blit; the remaining ~13 ms is
+  FBInk's refresh call. Worth digging into eventually.
+- **The async split genuinely defers on all three modes.** For a full refresh
+  that is the difference between 20 ms and 498 ms of blocked time.
+
+### Open question: DU earns nothing at full screen
+
+`WFM_GL16` and `WFM_DU` measured identical (23 ms). At full screen DU offers
+no speed and gives up 14 grey levels, so mapping `FAST_REFRESH` to it is not
+supported by this evidence. DU's classic advantage is on a small partial
+rectangle (a menu row changing under a finger), which the smoke test does not
+exercise. The mapping stays as it is until a partial-rect measurement decides
+it, rather than being changed on full-screen data alone.
+
+### Stride
+
+The panel is 600px wide and the framebuffer's scanline stride is **608
+bytes**. Destination rows must step by the stride; stepping by width walks
+each row 8px further left than the last and shears the image.
+
+
 ## Arduino compatibility
 
 The app tree is written against the Arduino core, and the port keeps it that
@@ -213,10 +254,15 @@ Two things the first cross-compile turned up, both the target's age showing:
   invoking `/lib/ld-linux.so.3` directly, which works because the kernel is
   then asked to exec the loader rather than the file on the card.
 
-**Nothing in `lib/hal/kindle/` has run on the device yet.** The expansion is
-host-tested; everything that touches FBInk or `/dev/fb0` is unexercised. The
-first real milestone is a scriptlet that paints one frame and proves the
-waveform mapping, which needs someone to tap a book on the home screen.
+The display backend **runs on the device** and its output is verified by
+reading panel memory back, not assumed. See "Measured on device" above.
+
+One lesson from getting there is worth keeping. The first on-device run
+reported OK while every blit silently failed: `fbink_print_raw_data` sits
+behind `FBINK_WITH_IMAGE`, a `MINIMAL` build compiles it out, and nothing
+checked its return, so the panel refreshed stale contents and the timings
+looked plausible. A test that can pass without doing its job is worse than no
+test. Hence the read-back probes.
 
 Next, roughly in order:
 
