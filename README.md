@@ -57,10 +57,21 @@ avoid making in writing.
 - Grayscale text antialiasing and grayscale images, composed from the
   renderer's two 1bpp planes into the 8bpp frame the EPDC wants.
 - Leaving: Settings > System > Exit CrossPoint hands the screen back.
-- Suspend and resume: the power button suspends the machine out from under the
-  process, and it repaints when it comes back rather than leaving a stale panel.
-- Extra fonts from the CrossPoint catalogue, in `/.fonts` rather than `/fonts`,
-  which belongs to the Kindle.
+
+## Written but not yet confirmed on a device
+
+Kept apart from the list above on purpose. These compile, link and are present
+in the binary, which is not the same as having been watched working, and this
+port has already had one case of code that could not run reading as code that
+did.
+
+- Grayscale composition. The pure part is covered by host tests driven through
+  the renderer's own encoding function; the panel half has not been eyeballed.
+- Repainting after a suspend. The power button suspends the machine out from
+  under the process, and it should repaint when it comes back rather than
+  leaving a stale panel.
+- Extra fonts from the CrossPoint catalogue, installed to `/.fonts` rather than
+  `/fonts`, which belongs to the Kindle.
 
 ## What does not
 
