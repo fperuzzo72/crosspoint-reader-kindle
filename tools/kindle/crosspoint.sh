@@ -18,6 +18,15 @@ LOG=/mnt/us/crosspoint-run.log
     echo "binary: $(ls -l $BASE/crosspoint 2>&1)"
     echo
 
+    # How this boot started. Written at launch, so it describes the boot BEFORE
+    # this run: if the device restarted on its own, this is where the reason
+    # shows up. The Kindle's own logs live on the root filesystem, which is not
+    # reachable from a Mac over USB, so asking here is the only way to see them.
+    echo "--- how this boot started ---"
+    echo "uptime: $(cat /proc/uptime 2>/dev/null | cut -d' ' -f1)s"
+    dmesg 2>/dev/null | grep -iE "watchdog|panic|oops|reset source|reboot|wdog" | tail -12
+    echo
+
     echo "--- what is on the card ---"
     for d in /mnt/us/fonts /mnt/us/ebooks /mnt/us/crosspoint; do
         echo "$d: $(ls "$d" 2>/dev/null | wc -l) entries"
