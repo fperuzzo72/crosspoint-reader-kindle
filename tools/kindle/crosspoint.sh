@@ -44,17 +44,60 @@ LOG=/mnt/us/crosspoint-run.log
         echo "  (killed by signal $((status - 128)))"
     fi
 
-    # Hand the screen back. CrossPoint leaves the panel white on the way out,
-    # but the Kindle's own UI has been running underneath the whole time and
-    # does not know its screen was taken, so it will not repaint until
-    # something wakes it. Which mechanism exists depends on the firmware, so
-    # this asks rather than assumes, and logs what it found either way.
-    echo "--- returning to the Kindle UI ---"
-    if command -v lipc-set-prop >/dev/null 2>&1; then
-        lipc-set-prop com.lab126.appmgrd start app://com.lab126.booklet.home 2>&1
-        echo "  appmgrd home: exit $?"
+    # Hand the screen back.
+    #
+    # The first attempt at this asked appmgrd to start the home booklet, which
+    # returned success and repainted nothing: home was ALREADY the foreground
+    # app, so there was no state change for the framework to redraw. It never
+    # knew its screen had been taken. The device came back only on replug,
+    # because entering USB mode IS a state change.
+    #
+    # So: leave a readable screen first, collect the evidence while the CPU is
+    # certainly awake, and only then force a real state change. If the force
+    # works the framework paints over the message; if it does not, the message
+    # is still standing and says what to do. A blank panel with no way back is
+    # the one outcome worth ruling out.
+    FBINK=/mnt/us/libkh/bin/fbink
+    echo "--- leaving a message on the panel ---"
+    if [ -x "$FBINK" ]; then
+        "$FBINK" -q -m -y 18 \
+            "CrossPoint closed." \
+            "" \
+            "Press the power button to return" \
+            "to the Kindle." 2>&1
+        echo "  fbink: exit $?"
     else
-        echo "  lipc-set-prop not present; press the power button to repaint"
+        echo "  fbink not found at $FBINK"
     fi
+
+    # Evidence for next time, cheap and read-only. It runs BEFORE the power
+    # press because that press suspends the CPU, and a log half-written across
+    # a suspend is the kind of thing that costs a run to notice.
+    echo
+    echo "--- what this firmware exposes ---"
+    echo "lipc services:"
+    lipc-probe -a 2>&1 | head -40
+    echo "powerd properties:"
+    lipc-probe com.lab126.powerd 2>&1 | head -30
+    echo "upstart jobs:"
+    initctl list 2>&1 | grep -iE "gui|framework|pillow|powerd" | head -10
+    echo "/etc/upstart:"
+    ls /etc/upstart 2>&1 | head -20
+
+    echo
     echo "=== finished: $(date) ==="
+
+    # Last, because it suspends the device. One press, not two: the first one
+    # sleeps the CPU and this script with it, so a second press would not fire
+    # until the user had already woken the device by hand, and would then put
+    # it straight back to sleep. Going down draws the screensaver, which is the
+    # full repaint that was missing; coming back up is the user's own press and
+    # lands on the Kindle home screen.
+    echo "--- simulating a power button press ---"
+    if command -v lipc-set-prop >/dev/null 2>&1; then
+        lipc-set-prop com.lab126.powerd powerButton 1 2>&1
+        echo "  powerButton: exit $?"
+    else
+        echo "  lipc-set-prop not present; the message on screen is the fallback"
+    fi
 } > "$LOG" 2>&1
