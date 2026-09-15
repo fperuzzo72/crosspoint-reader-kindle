@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <cstdio>
+#include <cerrno>
 #include <cstring>
 
 #include "KindleTouch.h"
@@ -52,6 +53,9 @@ KindleTouchDevice::~KindleTouchDevice() { end(); }
 
 bool KindleTouchDevice::begin(const uint16_t panelWidth, const uint16_t panelHeight, const TouchTuning tuning) {
   end();
+  openedWidth = panelWidth;
+  openedHeight = panelHeight;
+  openedTuning = tuning;
   classifier = TouchClassifier(panelWidth, panelHeight, tuning);
 
   DIR* dir = opendir("/dev/input");
@@ -95,15 +99,44 @@ void KindleTouchDevice::end() {
   pendingDown = false;
 }
 
+bool KindleTouchDevice::reopen() {
+  const unsigned long now = static_cast<unsigned long>(monotonicMs());
+  if (now < nextReopenAtMs) {
+    return false;
+  }
+  nextReopenAtMs = now + 1000;
+  const uint16_t w = openedWidth;
+  const uint16_t h = openedHeight;
+  const TouchTuning tuning = openedTuning;
+  if (!begin(w, h, tuning)) {
+    return false;
+  }
+  std::fprintf(stderr, "[kindle] touch device reopened\n");
+  return true;
+}
+
 GestureResult KindleTouchDevice::update(const int timeoutMs) {
   if (fd < 0) {
-    return {};
+    // Either it never opened or it went away; either way, keep trying. The
+    // rate limit inside reopen() is what makes that affordable.
+    if (!reopen()) {
+      return {};
+    }
   }
 
   pollfd pfd{fd, POLLIN, 0};
-  if (poll(&pfd, 1, timeoutMs) > 0 && (pfd.revents & POLLIN) != 0) {
+  const int ready = poll(&pfd, 1, timeoutMs);
+  if (ready < 0 || (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+    std::fprintf(stderr, "[kindle] touch descriptor went bad (revents 0x%x); reopening\n",
+                 static_cast<unsigned>(pfd.revents));
+    end();
+    reopen();
+    return {};
+  }
+  if (ready > 0 && (pfd.revents & POLLIN) != 0) {
     input_event ev{};
-    while (read(fd, &ev, sizeof(ev)) == static_cast<ssize_t>(sizeof(ev))) {
+    ssize_t got = 0;
+    while ((got = read(fd, &ev, sizeof(ev))) == static_cast<ssize_t>(sizeof(ev))) {
       switch (ev.type) {
         case EV_ABS:
           switch (ev.code) {
@@ -148,6 +181,20 @@ GestureResult KindleTouchDevice::update(const int timeoutMs) {
         default:
           break;
       }
+    }
+    // The drain ends either on EAGAIN, which is the normal "nothing more to
+    // read" on a non-blocking descriptor, or on a real error. A short read is
+    // not expected from evdev and is treated as a real error too: whatever it
+    // means, the stream is no longer framed and this cannot go on parsing it.
+    if (got < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+      std::fprintf(stderr, "[kindle] touch read failed (%s); reopening\n", std::strerror(errno));
+      end();
+      reopen();
+    } else if (got > 0) {
+      std::fprintf(stderr, "[kindle] short read of %d bytes from the touch device; reopening\n",
+                   static_cast<int>(got));
+      end();
+      reopen();
     }
   }
 

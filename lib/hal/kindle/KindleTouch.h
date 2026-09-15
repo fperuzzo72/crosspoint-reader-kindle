@@ -138,7 +138,25 @@ class KindleTouchDevice {
   bool isContactDown() const { return classifier.isContactDown(); }
 
  private:
+  // Reopen the evdev node after the descriptor has gone bad.
+  //
+  // A suspend takes the touch controller down with the rest of the machine,
+  // and the descriptor this process holds does not survive it: poll() starts
+  // returning POLLERR or POLLHUP and read() fails, after which update() drains
+  // nothing and reports nothing, forever and without a word. The reader looks
+  // alive and correct and simply ignores every touch, which is exactly what it
+  // did. Nothing here is told when that happens, so instead of being told, the
+  // failure is noticed and repaired where it shows up.
+  bool reopen();
+
   int fd = -1;
+  // Kept so reopen() can rebuild the classifier the way begin() did.
+  uint16_t openedWidth = 600;
+  uint16_t openedHeight = 800;
+  TouchTuning openedTuning{};
+  // Rate limit: a device that is genuinely gone must not turn every frame into
+  // a directory scan.
+  unsigned long nextReopenAtMs = 0;
   TouchClassifier classifier{600, 800};
   // Accumulated across a SYN boundary: the driver sends only what changed.
   int32_t pendingX = 0;
