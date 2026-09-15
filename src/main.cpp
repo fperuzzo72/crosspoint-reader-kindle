@@ -905,6 +905,17 @@ void loop() {
     lastActivityTime = millis();
   }
 #endif
+#if FREEINK_DEVICE_KINDLE
+  // Asked for from the home menu. Consumed here rather than acted on there
+  // because the sleep path runs ActivityManager::loop(), and a menu selection
+  // is already inside it.
+  if (HalSystem::consumeSleepRequest()) {
+    std::fprintf(stderr, "[kindle] sleep chosen from the menu\n");
+    enterDeepSleep(false);
+    return;
+  }
+#endif
+
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);

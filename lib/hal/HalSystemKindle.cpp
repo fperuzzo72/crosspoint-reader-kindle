@@ -55,6 +55,18 @@ void requestApplicationExit() { exitRequested = 1; }
 bool applicationExitRequested() { return exitRequested != 0; }
 
 namespace {
+volatile sig_atomic_t sleepRequested = 0;
+}  // namespace
+
+void requestSleep() { sleepRequested = 1; }
+
+bool consumeSleepRequest() {
+  if (sleepRequested == 0) return false;
+  sleepRequested = 0;
+  return true;
+}
+
+namespace {
 
 // Kernel 2.6.39 added it and this device runs 3.10, but the toolchain targets
 // a glibc old enough that its headers predate the constant. The clock id is

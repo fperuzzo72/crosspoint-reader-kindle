@@ -4,6 +4,9 @@
 
 #include "./FileBrowserActivity.h"
 #include "activities/Activity.h"
+#include <I18n.h>
+
+#include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
 struct RecentBook;
@@ -31,37 +34,28 @@ class HomeActivity final : public Activity {
   const HomeMenuItem initialMenuItem;
   const bool cleanInitialRefresh;
 
-  // Convert HomeMenuItem to menu index (used in onEnter)
-  static int menuItemToIndex(HomeMenuItem item, bool hasOpdsUrl) {
-    int i = 0;
-    if (item == HomeMenuItem::FILE_BROWSER) return i;
-    ++i;
-    if (item == HomeMenuItem::RECENTS) return i;
-    ++i;
-    if (item == HomeMenuItem::OPDS_BROWSER) return hasOpdsUrl ? i : 0;
-    if (hasOpdsUrl) ++i;
-    if (item == HomeMenuItem::FILE_TRANSFER) return i;
-    ++i;
-    if (item == HomeMenuItem::SETTINGS_MENU) return i;
-    return 0;
-  }
+  // The menu's order, written down once.
+  //
+  // This used to be five definitions that had to agree: the enum, a
+  // HomeMenuItem-to-index converter, an index-to-HomeMenuItem converter, a
+  // hand-counted total ("int count = 4;") and a pair of label/icon vectors.
+  // Adding one entry meant editing all five in step, and getting one wrong
+  // does not fail to build, it silently activates the neighbouring item.
+  // Everything below is derived from this.
+  std::vector<HomeMenuItem> menuOrder() const;
+  static StrId menuLabel(HomeMenuItem item);
+  static UIIcon menuIcon(HomeMenuItem item);
+  int menuItemToIndex(HomeMenuItem item) const;
+  HomeMenuItem indexToMenuItem(int index) const;
 
-  // Convert menu index to HomeMenuItem (used in loop)
-  static HomeMenuItem indexToMenuItem(int idx, bool hasOpdsUrl) {
-    int i = 0;
-    if (idx == i++) return HomeMenuItem::FILE_BROWSER;
-    if (idx == i++) return HomeMenuItem::RECENTS;
-    if (hasOpdsUrl && idx == i++) return HomeMenuItem::OPDS_BROWSER;
-    if (idx == i++) return HomeMenuItem::FILE_TRANSFER;
-    if (idx == i) return HomeMenuItem::SETTINGS_MENU;
-    return HomeMenuItem::NONE;
-  }
   void onSelectBook(const std::string& path);
   void onFileBrowserOpen();
   void onRecentsOpen();
   void onSettingsOpen();
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
+  void onSleepDevice();
+  void onExitApplication();
 
   int getMenuItemCount() const;
   bool storeCoverBuffer();    // Store frame buffer for cover image

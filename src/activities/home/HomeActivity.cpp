@@ -6,6 +6,7 @@
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
 #include <HalStorage.h>
+#include <HalSystem.h>
 #include <I18n.h>
 #include <Utf8.h>
 #include <Xtc.h>
@@ -22,15 +23,86 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
-int HomeActivity::getMenuItemCount() const {
-  int count = 4;  // File Browser, Recents, File transfer, Settings
-  if (!recentBooks.empty()) {
-    count += recentBooks.size();
-  }
+std::vector<HomeMenuItem> HomeActivity::menuOrder() const {
+  std::vector<HomeMenuItem> order;
+  order.reserve(7);
+  order.push_back(HomeMenuItem::FILE_BROWSER);
+  order.push_back(HomeMenuItem::RECENTS);
   if (hasOpdsServers) {
-    count++;
+    order.push_back(HomeMenuItem::OPDS_BROWSER);
   }
-  return count;
+#if !FREEINK_DEVICE_KINDLE
+  // File Transfer opens the built-in web server, which on the Kindle refuses
+  // to start: one of its routes registers an upload handler and multipart
+  // upload is unimplemented there. An entry that cannot do anything is worse
+  // than no entry, so it is not offered.
+  order.push_back(HomeMenuItem::FILE_TRANSFER);
+#endif
+  order.push_back(HomeMenuItem::SETTINGS_MENU);
+#if FREEINK_DEVICE_KINDLE
+  order.push_back(HomeMenuItem::SLEEP_DEVICE);
+  order.push_back(HomeMenuItem::EXIT_APP);
+#endif
+  return order;
+}
+
+StrId HomeActivity::menuLabel(const HomeMenuItem item) {
+  switch (item) {
+    case HomeMenuItem::FILE_BROWSER:
+      return StrId::STR_BROWSE_FILES;
+    case HomeMenuItem::RECENTS:
+      return StrId::STR_MENU_RECENT_BOOKS;
+    case HomeMenuItem::OPDS_BROWSER:
+      return StrId::STR_OPDS_BROWSER;
+    case HomeMenuItem::FILE_TRANSFER:
+      return StrId::STR_FILE_TRANSFER;
+    case HomeMenuItem::SETTINGS_MENU:
+      return StrId::STR_SETTINGS_TITLE;
+    case HomeMenuItem::SLEEP_DEVICE:
+      return StrId::STR_SLEEP_DEVICE;
+    case HomeMenuItem::EXIT_APP:
+      return StrId::STR_EXIT_APPLICATION;
+    case HomeMenuItem::NONE:
+      break;
+  }
+  return StrId::STR_NONE_OPT;
+}
+
+UIIcon HomeActivity::menuIcon(const HomeMenuItem item) {
+  switch (item) {
+    case HomeMenuItem::FILE_BROWSER:
+      return Folder;
+    case HomeMenuItem::RECENTS:
+      return Recent;
+    case HomeMenuItem::OPDS_BROWSER:
+      return Library;
+    case HomeMenuItem::FILE_TRANSFER:
+      return Transfer;
+    case HomeMenuItem::SETTINGS_MENU:
+      return Settings;
+    default:
+      // No power or sleep glyph in the set, and a borrowed one would say
+      // something untrue about the entry. Text alone is clearer.
+      return None;
+  }
+}
+
+int HomeActivity::menuItemToIndex(const HomeMenuItem item) const {
+  const auto order = menuOrder();
+  for (size_t i = 0; i < order.size(); ++i) {
+    if (order[i] == item) return static_cast<int>(i);
+  }
+  return 0;
+}
+
+HomeMenuItem HomeActivity::indexToMenuItem(const int index) const {
+  const auto order = menuOrder();
+  if (index < 0 || index >= static_cast<int>(order.size())) return HomeMenuItem::NONE;
+  return order[index];
+}
+
+int HomeActivity::getMenuItemCount() const {
+  return static_cast<int>(menuOrder().size()) + static_cast<int>(recentBooks.size());
 }
 
 void HomeActivity::loadRecentBooks(int maxBooks) {
@@ -119,7 +191,7 @@ void HomeActivity::onEnter() {
   loadRecentBooks(metrics.homeRecentBooksCount);
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasOpdsServers);
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem);
 
   // Trigger first update
   requestUpdate();
@@ -178,7 +250,7 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (indexToMenuItem(menuIndex, hasOpdsServers)) {
+    switch (indexToMenuItem(menuIndex)) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
@@ -193,6 +265,12 @@ void HomeActivity::loop() {
         break;
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
+        break;
+      case HomeMenuItem::SLEEP_DEVICE:
+        onSleepDevice();
+        break;
+      case HomeMenuItem::EXIT_APP:
+        onExitApplication();
         break;
       default:
         break;
@@ -304,14 +382,13 @@ void HomeActivity::render(RenderLock&&) {
                           recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                           std::bind(&HomeActivity::storeCoverBuffer, this));
 
-  // Build menu items dynamically
-  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
-                                        tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings};
-
-  if (hasOpdsServers) {
-    menuItems.insert(menuItems.begin() + 2, tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + 2, Library);
+  // Labels and icons come from the same ordered list the selection does, so a
+  // row can never activate its neighbour.
+  std::vector<const char*> menuItems;
+  std::vector<UIIcon> menuIcons;
+  for (const HomeMenuItem item : menuOrder()) {
+    menuItems.push_back(I18N.get(menuLabel(item)));
+    menuIcons.push_back(menuIcon(item));
   }
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
@@ -350,6 +427,19 @@ void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToR
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }
 
 void HomeActivity::onRecentsOpen() { activityManager.goToRecentBooks(); }
+
+void HomeActivity::onSleepDevice() {
+#if FREEINK_DEVICE_KINDLE
+  HalSystem::requestSleep();
+#endif
+}
+
+void HomeActivity::onExitApplication() {
+#if FREEINK_DEVICE_KINDLE
+  SETTINGS.saveToFile();
+  HalSystem::requestApplicationExit();
+#endif
+}
 
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 

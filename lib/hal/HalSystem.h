@@ -33,6 +33,16 @@ bool isRebootFromPanic();
 void requestApplicationExit();
 bool applicationExitRequested();
 
+// Ask the main loop to run CrossPoint's sleep. Raised from a menu selection and
+// consumed once by the loop.
+//
+// A flag rather than a direct call, for the same reason the exit above is one:
+// the sleep path pushes an activity and then runs ActivityManager::loop() to
+// get it on the panel before the machine stops, and a menu selection is itself
+// running inside that loop. Calling straight through would re-enter it.
+void requestSleep();
+bool consumeSleepRequest();
+
 // True once for each time the device has come back from a suspend, with the
 // time it spent there written to `millisAsleep` when non-null.
 //

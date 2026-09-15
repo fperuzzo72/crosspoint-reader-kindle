@@ -17,7 +17,20 @@
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
 
-enum class HomeMenuItem { NONE, FILE_BROWSER, RECENTS, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
+enum class HomeMenuItem {
+  NONE,
+  FILE_BROWSER,
+  RECENTS,
+  OPDS_BROWSER,
+  FILE_TRANSFER,
+  SETTINGS_MENU,
+  // Kindle only. Sleeping is worth a menu entry there because the power button
+  // never reaches this process, so this is the only way to reach CrossPoint's
+  // own sleep screen deliberately. Exiting is worth one because the app is a
+  // process sitting on top of a device that has its own UI to go back to.
+  SLEEP_DEVICE,
+  EXIT_APP,
+};
 
 /**
  * ActivityManager

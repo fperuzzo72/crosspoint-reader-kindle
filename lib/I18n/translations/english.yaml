@@ -466,3 +466,4 @@ STR_RECOVERY_MODE: "Recovery Mode"
 STR_RECOVERY_MODE_HINT: "Place firmware.bin on SD card root and select it"
 
 STR_EXIT_APPLICATION: "Exit CrossPoint"
+STR_SLEEP_DEVICE: "Sleep Device"
