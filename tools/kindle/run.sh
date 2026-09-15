@@ -40,6 +40,14 @@ LOG=/mnt/us/crosspoint-run.log
     dmesg 2>/dev/null | grep -iE "watchdog|panic|oops|reset source|reboot|wdog" | tail -12
     echo
 
+    # Which input devices exist and what each one reports. Asked because the
+    # reader opens only the node with ABS_MT_POSITION_X/Y, the touchscreen, so
+    # a power button press never reaches it. Whether there is a node to open
+    # for that is a question with an answer, and this is where the answer is.
+    echo "--- input devices ---"
+    cat /proc/bus/input/devices 2>/dev/null | grep -E "^(N|H|B: KEY|B: ABS)" | head -30
+    echo
+
     echo "--- what is on the card ---"
     for d in /mnt/us/fonts /mnt/us/ebooks /mnt/us/crosspoint; do
         echo "$d: $(ls "$d" 2>/dev/null | wc -l) entries"
