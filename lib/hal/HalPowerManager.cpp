@@ -10,6 +10,7 @@
 #include <cassert>
 
 #include "HalGPIO.h"
+#include "HalSystem.h"
 
 #if FREEINK_DEVICE_PAPERMONO
 #include <M5Pm1.h>
@@ -134,6 +135,13 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 }
 
 uint16_t HalPowerManager::getBatteryPercentage() const {
+#if FREEINK_DEVICE_KINDLE
+  // No gauge on a bus to talk to here: the PMIC belongs to the kernel and the
+  // charge belongs to powerd. BatteryMonitor's ADC and I2C reads go to shims
+  // and return nothing, which is why the indicator sat at 0.
+  const int percent = HalSystem::batteryPercent();
+  return percent < 0 ? 0 : static_cast<uint16_t>(percent);
+#else
   static const BatteryMonitor battery;
   if (BoardConfig::ACTIVE.batteryGauge.gaugeAddr != 0) {
     const unsigned long now = millis();
@@ -157,6 +165,7 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     _batteryCachedPercent = (_batteryCachedPercent * 9 + battery.readPercentage() * 10) / 10;
   }
   return _batteryCachedPercent / 10;
+#endif
 }
 
 HalPowerManager::Lock::Lock() {

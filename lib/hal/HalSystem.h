@@ -54,5 +54,14 @@ bool resumedFromSuspend(uint32_t* millisAsleep = nullptr);
 // The mount point stays behind as an empty directory, so this asks after a
 // file that only exists when the real filesystem is there.
 bool storageIsAttached();
+
+// Battery charge, 0-100, or -1 when it cannot be read.
+//
+// There is no gauge on a bus for this process to talk to: the PMIC belongs to
+// the kernel and the reading belongs to powerd, which publishes it. The
+// device's own lipc property table was captured by the launcher's probe and
+// lists "r Int battLevel" under com.lab126.powerd, so that is what is asked
+// first rather than a sysfs path guessed from another model.
+int batteryPercent();
 #endif
 }  // namespace HalSystem

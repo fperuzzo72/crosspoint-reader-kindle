@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <csignal>
 #include <ctime>
 
@@ -88,6 +89,84 @@ bool storageIsAttached() {
   // The binary this process is running from. It cannot be absent while the
   // filesystem is mounted, and it cannot be present while it is not.
   return access("/mnt/us/crosspoint/crosspoint", F_OK) == 0;
+}
+
+namespace {
+
+// Read an integer from the first line a command prints. Returns -1 on any
+// failure, including a command that does not exist.
+int readIntFromCommand(const char* command) {
+  FILE* pipe = popen(command, "r");
+  if (pipe == nullptr) return -1;
+  char buf[64] = {};
+  const char* line = std::fgets(buf, sizeof(buf), pipe);
+  pclose(pipe);
+  if (line == nullptr) return -1;
+  char* end = nullptr;
+  const long value = std::strtol(buf, &end, 10);
+  if (end == buf) return -1;
+  return static_cast<int>(value);
+}
+
+int readIntFromFile(const char* path) {
+  FILE* f = std::fopen(path, "r");
+  if (f == nullptr) return -1;
+  char buf[64] = {};
+  const char* line = std::fgets(buf, sizeof(buf), f);
+  std::fclose(f);
+  if (line == nullptr) return -1;
+  char* end = nullptr;
+  const long value = std::strtol(buf, &end, 10);
+  if (end == buf) return -1;
+  return static_cast<int>(value);
+}
+
+}  // namespace
+
+int batteryPercent() {
+  // Cached hard. The caller polls every 1.5s, and each miss here costs a fork
+  // and an exec; a battery does not move fast enough for that to buy anything.
+  static int cached = -1;
+  static int64_t nextReadAtMs = 0;
+  static bool saidSource = false;
+
+  int64_t nowMs = 0;
+  if (!readClockMs(CLOCK_MONOTONIC, nowMs)) return cached;
+  if (cached >= 0 && nowMs < nextReadAtMs) return cached;
+  nextReadAtMs = nowMs + 60000;
+
+  // powerd first: the probe taken on the device lists battLevel, so this is
+  // the one source known to exist here rather than inferred from a sibling
+  // model. The sysfs paths after it are guesses kept as a fallback, and the
+  // log names whichever answered so the guessing can stop.
+  struct Source {
+    const char* what;
+    bool isCommand;
+  };
+  static const Source sources[] = {
+      {"lipc-get-prop com.lab126.powerd battLevel 2>/dev/null", true},
+      {"/sys/class/power_supply/bd71827_bat/capacity", false},
+      {"/sys/class/power_supply/max77696-battery/capacity", false},
+      {"/sys/devices/system/yoshi_battery/yoshi_battery0/battery_capacity", false},
+  };
+
+  for (const auto& source : sources) {
+    const int value = source.isCommand ? readIntFromCommand(source.what) : readIntFromFile(source.what);
+    if (value >= 0 && value <= 100) {
+      if (!saidSource) {
+        saidSource = true;
+        std::fprintf(stderr, "[kindle] battery read from %s: %d%%\n", source.what, value);
+      }
+      cached = value;
+      return cached;
+    }
+  }
+
+  if (!saidSource) {
+    saidSource = true;
+    std::fprintf(stderr, "[kindle] no battery source answered; the gauge will read 0\n");
+  }
+  return cached;
 }
 
 bool resumedFromSuspend(uint32_t* const millisAsleep) {

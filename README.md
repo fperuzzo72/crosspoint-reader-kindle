@@ -57,6 +57,8 @@ avoid making in writing.
 - Grayscale text antialiasing and grayscale images, composed from the
   renderer's two 1bpp planes into the 8bpp frame the EPDC wants.
 - Leaving: Settings > System > Exit CrossPoint hands the screen back.
+- Battery, read from powerd rather than from a gauge on a bus, since the PMIC
+  belongs to the kernel here.
 - Sleeping and waking with the power button. Two separate things had to work
   for this: the Kindle's own UI blanks the shared framebuffer on the way in,
   and the machine genuinely suspends out from under the process on the way out.
