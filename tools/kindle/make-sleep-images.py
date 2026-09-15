@@ -9,9 +9,14 @@ Two decisions worth stating, because neither is the obvious one:
 
 - The image is never stretched to fill the width. 480x800 already matches the
   panel's height exactly, so it is placed at its native size and the 60px
-  gutters are filled with the MEDIAN COLOUR OF ITS OWN EDGE rather than white.
-  A dark poster framed in white would read as a mistake; framed in its own
-  border colour, the seam disappears.
+  gutters are filled with white.
+
+  The first version sampled the median colour of the image's own edge, on the
+  theory that a dark poster framed in white would read as a mistake. On the
+  panel it read worse: e-ink renders a near-black gutter as a solid band of
+  ink, and any mismatch between the sampled colour and the image's actual edge
+  shows up as a visible seam that white never has. Judged on the glass rather
+  than on a monitor, plain white won.
 
 - 4 bits per pixel, a fixed uniform 16-level gray palette, which is one sixth
   the size of 24-bit at no visible cost: 28.8 MB becomes 4.8 MB across twenty
@@ -51,16 +56,6 @@ def gray_palette_image():
     return img
 
 
-def edge_colour(im):
-    px = im.load()
-    samples = []
-    for y in range(0, im.height, max(1, im.height // 64)):
-        samples.append(px[0, y])
-        samples.append(px[im.width - 1, y])
-    samples.sort()
-    return samples[len(samples) // 2]
-
-
 def write_bmp4(path, indices, w, h, levels=LEVELS):
     row_bytes = (w + 1) // 2
     stride = (row_bytes + 3) & ~3  # BMP rows are 4-byte aligned
@@ -97,7 +92,7 @@ def convert(src_dir, dst_dir):
         nw, nh = round(im.width * scale), round(im.height * scale)
         if (nw, nh) != (im.width, im.height):
             im = im.resize((nw, nh), Image.LANCZOS)
-        canvas = Image.new("RGB", (W, H), edge_colour(im))
+        canvas = Image.new("RGB", (W, H), (255, 255, 255))
         canvas.paste(im, ((W - nw) // 2, (H - nh) // 2))
         quantised = canvas.quantize(palette=palette, dither=Image.FLOYDSTEINBERG)
         out = os.path.join(dst_dir, name.rsplit(".", 1)[0] + ".bmp")

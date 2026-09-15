@@ -101,6 +101,18 @@ class ActivityManager {
   // Note: if popActivity() on last activity on the stack, we will goHome()
   void popActivity();
 
+  // What is actually on screen, and whether a change to it is still in flight.
+  //
+  // Both exist because tracking "did I push the sleep screen?" in a caller's
+  // own bool goes wrong the moment a push and a pop meet inside one pending
+  // window: popActivity() discards a pending push and pops the real stack
+  // instead, leaving an activity on screen that the caller believes is not
+  // there. When that activity has no loop() of its own, every touch after it
+  // lands nowhere and the UI is simply dead. Ask the manager instead of
+  // shadowing it.
+  const char* currentActivityName() const;
+  bool hasPendingActivityChange() const { return pendingAction != PendingAction::None; }
+
   bool preventAutoSleep() const;
   bool requiresExclusiveStorageLoop() const;
   bool isReaderActivity() const;

@@ -647,15 +647,42 @@ void loop() {
   static unsigned long nextPanelCheckAt = 0;
   static uint8_t consecutiveRepaints = 0;
   static bool storageWasAttached = true;
-  static bool sleepScreenShowing = false;
   static constexpr uint8_t MAX_CONSECUTIVE_REPAINTS = 4;
 
+  // Asked of the manager rather than tracked here. A local bool saying "I
+  // pushed the sleep screen" desynchronised the first time a push and a pop
+  // met inside one pending window: popActivity() discards a pending push and
+  // pops the real stack instead, so the sleep screen stayed on screen while
+  // this code believed it was gone. SleepActivity has no loop() of its own, so
+  // from then on every touch landed nowhere and the UI was dead.
+  const bool sleepScreenShowing = std::strcmp(activityManager.currentActivityName(), "Sleep") == 0;
+
   const auto showSleepScreen = [] {
+    // COVER and COVER_CUSTOM choose the book's cover over a wallpaper by
+    // reading this flag, which is normally set on the way into enterDeepSleep()
+    // — the very path this target does not take. Without it the cover mode
+    // silently behaved as the wallpaper mode, which is what "the cover never
+    // came up" was.
+    APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+
+    // A sleep screen is a full-page picture arriving on top of text, and a
+    // differential waveform leaves the text legible underneath it. GC16 flashes
+    // and costs about half a second, which is the right trade for a frame that
+    // will then sit on the glass untouched for hours.
+    renderer.promoteNextRefresh(HalDisplay::FULL_REFRESH);
+
     // fromTimeout deliberately false: with it, and the right setting, this
     // renders the last screen, which is precisely the thing a sleep screen is
     // being asked NOT to be. Quick Resume stays available to anyone who picks
     // it on purpose.
     activityManager.pushActivity(std::make_unique<SleepActivity>(renderer, mappedInputManager, false));
+  };
+
+  // Coming back the other way has the same problem in reverse: a page of text
+  // drawn over a photograph keeps the photograph faintly visible.
+  const auto hideSleepScreen = [] {
+    renderer.promoteNextRefresh(HalDisplay::FULL_REFRESH);
+    activityManager.popActivity();
   };
 
   {
@@ -664,10 +691,9 @@ void loop() {
       std::fprintf(stderr, "[kindle] resumed after %lums suspended; reopening the panel\n",
                    static_cast<unsigned long>(millisAsleep));
       if (display.reinitAfterResume()) {
-        if (sleepScreenShowing) {
-          sleepScreenShowing = false;
-          activityManager.popActivity();
-        } else {
+        if (sleepScreenShowing && !activityManager.hasPendingActivityChange()) {
+          hideSleepScreen();
+        } else if (!sleepScreenShowing) {
           activityManager.handleForcedRefresh();
           activityManager.requestUpdate();
         }
@@ -682,19 +708,22 @@ void loop() {
     }
   }
 
-  if (sleepScreenShowing) {
+  if (sleepScreenShowing && !activityManager.hasPendingActivityChange()) {
     int touchX = 0;
     int touchY = 0;
     if (mappedInputManager.wasScreenTouchDown(touchX, touchY)) {
       std::fprintf(stderr, "[kindle] touch dismissed the sleep screen\n");
-      sleepScreenShowing = false;
-      activityManager.popActivity();
+      hideSleepScreen();
     }
   }
 
   // Polled rather than checked every iteration: the loop runs far faster than
   // any blanking, and this reads device memory.
-  if (millis() >= nextPanelCheckAt) {
+  // Never act on the panel while an activity change is still in flight: the
+  // screen does not yet show what the manager has already been told to show,
+  // so any decision taken from it would be about a frame that is on its way
+  // out.
+  if (millis() >= nextPanelCheckAt && !activityManager.hasPendingActivityChange()) {
     nextPanelCheckAt = millis() + 400;
     if (!HalSystem::storageIsAttached()) {
       // USB mass storage: the framework has unmounted /mnt/us so the host can
@@ -719,12 +748,10 @@ void loop() {
       if (sleepScreenShowing) {
         std::fprintf(stderr, "[kindle] panel blanked again; taking it back from the sleep screen (%u)\n",
                      static_cast<unsigned>(consecutiveRepaints));
-        sleepScreenShowing = false;
-        activityManager.popActivity();
+        hideSleepScreen();
       } else {
         std::fprintf(stderr, "[kindle] panel was painted over; showing the sleep screen (%u)\n",
                      static_cast<unsigned>(consecutiveRepaints));
-        sleepScreenShowing = true;
         showSleepScreen();
       }
     }
