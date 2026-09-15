@@ -50,35 +50,23 @@ avoid making in writing.
 
 ## What works
 
+All of this has been watched working on the device, not merely built.
+
 - Reading EPUBs, with the file browser rooted at `/mnt/us`.
 - Touch: taps, long presses and swipes, classified from the raw evdev stream.
 - Portrait UI on a panel whose native axis is portrait, which is a quarter turn
   away from what the renderer assumes.
-- Grayscale text antialiasing and grayscale images, composed from the
-  renderer's two 1bpp planes into the 8bpp frame the EPDC wants.
-- Leaving: Settings > System > Exit CrossPoint hands the screen back.
+- Grayscale text and grayscale images, composed from the renderer's two 1bpp
+  planes into the 8bpp frame the EPDC wants.
+- Extra fonts, installed to `/.sleep`'s neighbour `/.fonts` rather than
+  `/fonts`, which belongs to the Kindle.
 - Battery, read from powerd rather than from a gauge on a bus, since the PMIC
   belongs to the kernel here.
 - Sleeping and waking with the power button: the page survives the round trip.
   The reader repaints whenever it finds that something else has painted over
   the framebuffer it shares with the Kindle's UI, which covers both the blank
   on the way in and the one on the way out.
-- CrossPoint's own sleep screen, on its own inactivity timeout, with the book's
-  cover if it was reading one. A power button press is handled by the system
-  before this process hears about it, so that one still sleeps on whatever was
-  on screen.
-
-## Written but not yet confirmed on a device
-
-Kept apart from the list above on purpose. These compile, link and are present
-in the binary, which is not the same as having been watched working, and this
-port has already had one case of code that could not run reading as code that
-did.
-
-- Grayscale composition. The pure part is covered by host tests driven through
-  the renderer's own encoding function; the panel half has not been eyeballed.
-- Extra fonts from the CrossPoint catalogue, installed to `/.fonts` rather than
-  `/fonts`, which belongs to the Kindle.
+- Leaving, from the end of the home menu or from Settings > System.
 
 ## What does not
 
@@ -90,16 +78,20 @@ Listed because a port that hides its edges wastes the next person's afternoon.
   this rules out most real OPDS catalogues and sync servers.
 - **The built-in web server does not start.** Multipart upload is
   unimplemented, one route registers an upload handler, and `begin()` refuses
-  rather than accepting a POST it would drop halfway through a file.
+  rather than accepting a POST it would drop halfway through a file. File
+  Transfer is therefore not offered on the home menu here: it could only ever
+  have opened a server that refuses to run.
 - **Wi-Fi join and hotspot do not work.** The system owns the radio on this
   device. CrossPoint can use a connection the Kindle has already made; it
   cannot make one.
 - **Firmware update over the air does not apply** to this target and fails
   every call on purpose.
-- **CrossPoint's own sleep timer is disabled here.** Sleeping is the system's
-  job on this device: the Kindle suspends and wakes on its own schedule, and
-  the reader repaints when it comes back. The app-level timer ended in a call
-  that cannot be made from a Linux process, so it is not taken.
+- **The sleep screen is drawn and then covered.** CrossPoint's inactivity
+  timer runs and renders its sleep screen, cover and all, and then asks powerd
+  to suspend — at which point the Kindle draws its own screensaver on top,
+  because the framework owns that part of going to sleep and does not know this
+  process exists. The feature is wired up and effectively invisible. See
+  docs/kindle-port.md for what was measured and the one avenue left.
 
 ## Installing
 

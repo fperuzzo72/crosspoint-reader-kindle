@@ -410,9 +410,11 @@ implementations and the `EpdBus` they talk through, and on this target
 HalDisplay bypasses all of it, so compiling them only produced objects
 referencing a bus that cannot exist here.
 
-### What the remaining 92 are waiting on
+### What the remaining 92 were waiting on
 
-Every one of them traces to a specific file that does not compile:
+Historical: the count reached zero and the binary runs. Kept because the shape
+of the dependency, rather than the number, is what a similar port would meet
+again. Every one of the 92 traced to a specific file that did not compile:
 
 | Blocked on | Files |
 | --- | --- |
@@ -422,9 +424,9 @@ Every one of them traces to a specific file that does not compile:
 | `esp_crt_bundle.h` | `HttpDownloader` |
 | `SDCardManager` | `HalStorage`, which still reaches for the SD abstraction |
 
-`ActivityManager` is the one to fix first, and not because it is hardest: it
+`ActivityManager` was the one to fix first, and not because it was hardest: it
 defines `RenderLock` and the activity navigation the whole UI calls, so it
-alone accounts for a large share of the remaining references.
+alone accounted for a large share of the references.
 
 
 ## Two C++ traps worth naming
@@ -473,7 +475,9 @@ Done:
 - Arduino, FreeRTOS, SdFat, networking and crypto surfaces, enough for a tree
   written against a microcontroller to compile against glibc.
 - Sleeping and waking, confirmed on the device from inside a book and from the
-  main menu: the screen the device slept on is the screen it wakes to. It took
+  main menu: the screen the device slept on is the screen it wakes to. The full
+  account of how the panel is shared with the framework, and of the two wrong
+  designs before this one, is under "Power, and who owns the panel" below. It took
   four wrong turns to get there, so they are worth keeping: the symptom was two
   problems wearing one face; On the way in, the Kindle's UI blanks the framebuffer it SHARES with
   this process, so our pixels are replaced in the mapping we both hold; 96
@@ -559,6 +563,105 @@ Not reached, and why:
    that most limits the port in practice.
 2. **Multipart upload**, which gates the whole built-in web server: one route
    registers an upload handler and `begin()` refuses to start.
-3. **Broad runtime verification.** A great deal of this tree compiles and links
+3. **A sleep screen that stays on the glass.** Implemented, and covered over by
+   the framework a second later; see "Power, and who owns the panel" below.
+4. **Broad runtime verification.** A great deal of this tree compiles and links
    without ever having executed on the device. That is not the same as working,
    and this document tries to be careful about which of the two it is claiming.
+
+## Power, and who owns the panel
+
+This is the part of the port that took the longest and produced the most wrong
+turns, so it is written down in full.
+
+### The framebuffer is shared
+
+`/dev/fb0` is ONE framebuffer, and the Kindle's own UI writes to it too. When
+the framework blanks the screen, our pixels are replaced in the mapping we both
+hold. The reader carries on alive and correct behind a white screen: it answers
+touches and redraws properly the moment it is asked to.
+
+So the question this port asks is not "did the device go to sleep", which a
+framebuffer cannot answer. It is "is what we painted still there". 256 sample
+points are recorded after every write of ours and compared every 400ms, and a
+difference is positive evidence that a second writer exists — which no amount
+of successful writing could ever show. Reading back our own write proves only
+that memory is memory; that distinction is the whole design.
+
+Three calibration mistakes, each of which presented as a different bug:
+
+- The threshold began at a quarter of the sample points, justified by "a
+  blanking pass changes nearly everything". True of the PANEL and false of the
+  SAMPLES: a page of text is already almost entirely white, so clearing it only
+  changes the pixels that carried ink. It could not fire for the case it
+  existed to catch.
+- Made sensitive, it began seeing its own writing. `displayGrayscaleBase()`
+  stages a base with no waveform, and the sample was recorded only where a
+  waveform was issued, so the window between staging and committing looked like
+  an intruder and the repaint it provoked staged again. In the log a real
+  intruder shows as a rising count and a loop shows as a flat one.
+- And it had to learn to keep out while the USB host owns the storage. During
+  mass storage `/mnt/us` is unmounted, so a repaint drew a page whose file had
+  gone away, which is to say it painted the screen white.
+
+### Suspend is the rarer half
+
+A real suspend is detected from the two kernel clocks that disagree about it:
+`CLOCK_MONOTONIC` stops while suspended and `CLOCK_BOOTTIME` does not, so the
+gap between them is the time spent asleep. Measured: 4759s monotonic against
+6763s boottime at one launch, and a 64719ms suspend across one press.
+
+It is the secondary mechanism, not the primary one, which is the opposite of
+how this was first built. Most power button presses only blank the screen
+without the machine suspending at all, and those sessions carry no "resumed
+after" line while the reader still comes back correctly. What a suspend adds is
+that the mapping can stop being the panel while remaining perfectly valid as
+memory, so it is re-established before repainting.
+
+### The sleep screen, twice wrong
+
+The first attempt inferred sleep from the blanking. Going to sleep and waking
+up look identical from a framebuffer, so it assumed they alternate. They do,
+until something blocks the main loop long enough to miss one: opening a large
+book indexes for several seconds with the loop stopped, and the reader came
+back to a sleep screen with the alternation inverted from then on. Every power
+press then produced another sleep screen and only a device reset recovered.
+Taken out.
+
+The second attempt used CrossPoint's own inactivity timer, which is
+unambiguous, and ended by asking powerd to suspend — the same simulated power
+button press the launcher has always used on exit. That works, and is what runs
+today. It is also invisible: the framework draws its own screensaver over ours
+a moment later.
+
+### The power button is not an input device
+
+Measured rather than assumed. `/proc/bus/input/devices` on this Kindle lists
+exactly one device:
+
+    N: Name="zforce2"
+    H: Handlers=event0
+    B: KEY=6420 0 0 0 0 0 0 0 0 0 0
+    B: ABS=2608000 0
+
+Decoding the key bitmap gives BTN_TOOL_FINGER, BTN_TOUCH, BTN_TOOL_DOUBLETAP
+and BTN_TOOL_TRIPLETAP. KEY_POWER, code 116, is absent, and there is no second
+node. The decoding validates itself on the other bitmap, which comes out as
+exactly ABS_MT_SLOT, ABS_MT_POSITION_X, ABS_MT_POSITION_Y and
+ABS_MT_TRACKING_ID — precisely what the touch backend reads to work.
+
+So the button goes from the PMIC to powerd by a path userspace does not see.
+There is no event to receive and nothing to race, which closes the question of
+showing a sleep screen on a manual press.
+
+### The one avenue left
+
+An observation worth more than the two attempts: when the user presses the
+button, the device sleeps showing the last CrossPoint screen, with no
+screensaver over it. When CrossPoint asks powerd to suspend, the screensaver
+appears. Both go through the same property, so the reason is not understood.
+
+If a press really does leave our content on the glass, the way to a sleep
+screen is the opposite of what is implemented: draw it and ask for nothing.
+E-ink holds the image at no cost, and the Kindle's own idle timer suspends the
+machine later by whatever path evidently does not overwrite us. Untested.
