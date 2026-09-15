@@ -51,12 +51,23 @@ CDEFS="-DXML_GE=0 -DXML_CONTEXT_BYTES=1024"
 # Arduino.h would reuse every stale object and report a number that was true
 # ten edits ago. Rather than track real dependencies, the newest header under
 # the shim wins: if it is newer than an object, that object is rebuilt.
-# Watch the generated defines header too: it carries build-wide macros
-# (ARDUINOJSON_ENABLE_ARDUINO_STRING, CROSSPOINT_VERSION) and a change there
-# affects every object, but it lives outside the shim tree.
-NEWEST_HEADER=$(find lib/hal/kindle build/kindle/census-defines.h -name '*.h' -newer "$OUT/.stamp" 2>/dev/null | head -1)
+# ANY header, not just the shim's.
+#
+# The rule below rebuilds an object when its own source is newer, which says
+# nothing about the headers that source includes. That is not a theoretical
+# gap: I18nKeys.h is generated, and adding one string moved StrId::_COUNT from
+# 462 to 463 while I18n.cpp's object stayed behind holding "cmp #462". The new
+# string was in the binary and the code that looked it up rejected it as out of
+# range, so the menu showed "???" and everything about the build looked fine.
+#
+# A stale object carrying a stale constant is the worst shape a build error
+# takes, because nothing fails. So the whole tree's headers are watched and any
+# change discards every object. That costs a full rebuild, which is about a
+# minute, and buys never having to wonder.
+NEWEST_HEADER=$(find lib src freeink-sdk build/kindle/census-defines.h \
+    \( -name '*.h' -o -name '*.hpp' \) -newer "$OUT/.stamp" 2>/dev/null | head -1)
 if [ ! -f "$OUT/.stamp" ] || [ -n "$NEWEST_HEADER" ]; then
-    echo "--- shim headers changed, discarding objects ---"
+    echo "--- a header changed (${NEWEST_HEADER:-first run}); discarding objects ---"
     rm -f "$OUT"/*.o
 fi
 touch "$OUT/.stamp"

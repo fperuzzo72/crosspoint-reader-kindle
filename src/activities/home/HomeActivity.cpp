@@ -40,7 +40,11 @@ std::vector<HomeMenuItem> HomeActivity::menuOrder() const {
 #endif
   order.push_back(HomeMenuItem::SETTINGS_MENU);
 #if FREEINK_DEVICE_KINDLE
-  order.push_back(HomeMenuItem::SLEEP_DEVICE);
+  // No Sleep entry. It worked, in the sense that CrossPoint's sleep screen was
+  // drawn and the device slept — and then the Kindle's own screensaver was
+  // drawn on top of it a moment later, because the framework owns that part of
+  // going to sleep and does not know this process exists. An entry whose result
+  // is visible for one second and then replaced is not worth a row.
   order.push_back(HomeMenuItem::EXIT_APP);
 #endif
   return order;
