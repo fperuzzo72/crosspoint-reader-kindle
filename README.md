@@ -62,9 +62,11 @@ avoid making in writing.
 - Sleeping and waking with the power button: the page survives the round trip.
   The reader repaints whenever it finds that something else has painted over
   the framebuffer it shares with the Kindle's UI, which covers both the blank
-  on the way in and the one on the way out. There is no separate sleep screen;
-  an attempt at one is described in docs/kindle-port.md and why it was taken
-  out again.
+  on the way in and the one on the way out.
+- CrossPoint's own sleep screen, on its own inactivity timeout, with the book's
+  cover if it was reading one. A power button press is handled by the system
+  before this process hears about it, so that one still sleeps on whatever was
+  on screen.
 
 ## Written but not yet confirmed on a device
 

@@ -35,6 +35,7 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
+#include "activities/boot_sleep/SleepActivity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
@@ -158,6 +159,16 @@ enum class BootResume : uint8_t {
 // device back up against the user's sleep gesture. Never cleared:
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
+#if FREEINK_DEVICE_KINDLE
+// Asks the loop to rearm the inactivity clock. Raised both when a suspend
+// has been REQUESTED and when one has ENDED, and both are needed. Waking does
+// not restart this process the way it does on an ESP32, so the clock still
+// holds the value that sent it to sleep; and the request itself returns long
+// before the machine actually stops, so without rearming there too the loop
+// keeps running with an elapsed timeout and stacks a second sleep screen on
+// top of the first.
+static bool kindleRearmIdleClock = false;
+#endif
 
 #if FREEINK_CAP_TOUCH
 static bool finishWifiSessionWithoutRestart() {
@@ -267,26 +278,54 @@ static bool loadSleepFrameBuffer() {
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
 #if FREEINK_DEVICE_KINDLE
-  // Not on this device, and the callers' "this never returns" is exactly why.
+  // CrossPoint's own sleep, doing what it does everywhere else right up to the
+  // last step, which is the only one that has no equivalent here.
   //
-  // Every path here ends in powerManager.startDeepSleep(), which on an ESP32
-  // stops the chip and wakes it with a reset. There is no such call to make
-  // from a Linux process: the shimmed esp_deep_sleep_start() is an empty
-  // function, so it returned, deepSleepInProgress stayed latched, and the
-  // reader sat on its sleep screen with no way back. That was the reported
-  // symptom, and it was this line.
+  // What blocked this before was that every path ended in
+  // powerManager.startDeepSleep(), which on an ESP32 stops the chip and wakes
+  // it with a reset. The shim for that is an empty function: it returned, the
+  // sleep screen stayed up and there was no way back. The missing piece was
+  // never the sleep screen, it was a way to actually stop the machine, and
+  // powerd has one. A simulated power button press is the same state change
+  // the user makes by hand, and the launcher's exit path has been using it
+  // successfully all along.
   //
-  // Sleeping is the system's job here. The Kindle's own power management
-  // suspends the machine on its own schedule and wakes it on the power button,
-  // and resumedFromSuspend() in loop() repaints when it comes back. Duplicating
-  // that with an app-level timer buys nothing and, as it turns out, costs a
-  // hang.
-  (void)fromTimeout;
-  static bool said = false;
-  if (!said) {
-    said = true;
-    std::fprintf(stderr, "[kindle] sleep refused: the system owns power on this device\n");
+  // The activity is PUSHED, not replaced. goToSleep() replaces and drops the
+  // stack, which is right where waking is a reset and the stack gets rebuilt
+  // from APP_STATE. This process survives its own suspend, so the screen it
+  // was on is still there to come back to.
+  // Already asleep: nothing to do, and re-entering would stack a second sleep
+  // screen over the first.
+  if (std::strcmp(activityManager.currentActivityName(), "Sleep") == 0) {
+    kindleRearmIdleClock = true;
+    return;
   }
+
+  APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+  APP_STATE.showBootScreen = false;
+  APP_STATE.saveToFile();
+
+  // A full-page picture landing on top of text needs a clean waveform, or the
+  // text stays legible underneath it.
+  renderer.promoteNextRefresh(HalDisplay::FULL_REFRESH);
+  activityManager.pushActivity(std::make_unique<SleepActivity>(renderer, mappedInputManager, fromTimeout));
+  // Render it now rather than on the next iteration: the machine is about to
+  // stop. goToSleep() calls loop() for exactly this reason.
+  activityManager.loop();
+  display.deepSleep();  // let any waveform finish before the clocks stop
+
+  std::fprintf(stderr, "[kindle] sleep screen up (fromTimeout=%d); asking powerd to suspend\n", fromTimeout ? 1 : 0);
+  if (std::system("lipc-set-prop com.lab126.powerd powerButton 1") != 0) {
+    // Not fatal, and deliberately not a reason to tear the sleep screen down:
+    // the panel is showing something sensible either way, and a touch takes it
+    // back. Worth saying, because a device that will not sleep is a battery
+    // complaint days later with nothing to explain it.
+    std::fprintf(stderr, "[kindle] powerd refused the suspend; the sleep screen stays up but the machine is awake\n");
+  }
+  // Rearm now, not on the way back. lipc-set-prop returns long before powerd
+  // actually stops the machine, and during that window the timeout is still
+  // elapsed: without this the loop would call straight back in.
+  kindleRearmIdleClock = true;
   return;
 #else
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
@@ -657,13 +696,34 @@ void loop() {
     activityManager.requestUpdate();
   };
 
+  // Is CrossPoint's own sleep screen the thing on the panel? Asked of the
+  // manager rather than remembered here: a second copy of this fact
+  // desynchronised once and left an activity on screen that had no loop() of
+  // its own, so every touch after it landed nowhere.
+  const bool sleepScreenShowing = std::strcmp(activityManager.currentActivityName(), "Sleep") == 0;
+  const auto endSleep = [] {
+    renderer.promoteNextRefresh(HalDisplay::FULL_REFRESH);
+    activityManager.popActivity();
+  };
+
   {
     uint32_t millisAsleep = 0;
     if (HalSystem::resumedFromSuspend(&millisAsleep)) {
       std::fprintf(stderr, "[kindle] resumed after %lums suspended; reopening the panel\n",
                    static_cast<unsigned long>(millisAsleep));
+      kindleRearmIdleClock = true;
       if (display.reinitAfterResume()) {
-        repaintNow();
+        // Coming back from a sleep this process asked for: take its screen
+        // down and hand the reader back. Coming back from one the framework
+        // started on its own, there is no sleep screen and this is just a
+        // repaint. The suspend is what decides, not a guess about which blank
+        // meant what.
+        if (sleepScreenShowing && !activityManager.hasPendingActivityChange()) {
+          std::fprintf(stderr, "[kindle] taking the sleep screen down\n");
+          endSleep();
+        } else {
+          repaintNow();
+        }
       } else {
         // The panel cannot be reopened, so this process can neither draw nor
         // get out of the way, and the device would need a reboot to recover.
@@ -672,6 +732,19 @@ void loop() {
         std::fprintf(stderr, "[kindle] panel unrecoverable after resume; exiting so the launcher can hand it back\n");
         HalSystem::requestApplicationExit();
       }
+    }
+  }
+
+  // A touch takes the sleep screen down too. SleepActivity has no loop() of its
+  // own, so without this a sleep screen that outlived its suspend — powerd
+  // refusing the request, or a wake that reported none — would be a dead
+  // interface with no way out. That exact shape cost a device reset once.
+  if (sleepScreenShowing && !activityManager.hasPendingActivityChange()) {
+    int touchX = 0;
+    int touchY = 0;
+    if (mappedInputManager.wasScreenTouchDown(touchX, touchY)) {
+      std::fprintf(stderr, "[kindle] touch took the sleep screen down\n");
+      endSleep();
     }
   }
 
@@ -823,11 +896,16 @@ void loop() {
   }
 #endif
 
-  // Sleeping is the system's job on the Kindle (see enterDeepSleep). Skipping
-  // the check here as well is not redundant: once the timeout has elapsed this
-  // condition is true on EVERY iteration, so leaving it to the guard inside
-  // would mean a refused call per frame, forever.
-  const unsigned long sleepTimeoutMs = FREEINK_DEVICE_KINDLE ? 0 : SETTINGS.getSleepTimeoutMs();
+#if FREEINK_DEVICE_KINDLE
+  // Waking does not restart this process the way it does on an ESP32, so the
+  // inactivity clock is still holding the value that sent it to sleep. Without
+  // this, the first iteration after a resume sleeps again immediately.
+  if (kindleRearmIdleClock) {
+    kindleRearmIdleClock = false;
+    lastActivityTime = millis();
+  }
+#endif
+  const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
     enterDeepSleep(true);

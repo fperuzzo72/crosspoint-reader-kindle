@@ -101,6 +101,11 @@ class ActivityManager {
   // Note: if popActivity() on last activity on the stack, we will goHome()
   void popActivity();
 
+  // What is actually on screen. Used to decide whether there is a sleep screen
+  // to take down, rather than keeping a second copy of that fact here and
+  // hoping the two agree; they did not, once, and the UI died.
+  const char* currentActivityName() const;
+
   // True while a push, pop or replace has been asked for but not yet applied.
   // Anything deciding from what is on the panel has to wait for it: the screen
   // still shows the outgoing frame, so a decision taken then is about a frame
