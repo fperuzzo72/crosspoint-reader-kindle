@@ -59,10 +59,12 @@ avoid making in writing.
 - Leaving: Settings > System > Exit CrossPoint hands the screen back.
 - Battery, read from powerd rather than from a gauge on a bus, since the PMIC
   belongs to the kernel here.
-- Sleeping and waking with the power button. Two separate things had to work
-  for this: the Kindle's own UI blanks the shared framebuffer on the way in,
-  and the machine genuinely suspends out from under the process on the way out.
-  The reader now repaints for both, and the page survives the round trip.
+- Sleeping and waking with the power button: the page survives the round trip.
+  The reader repaints whenever it finds that something else has painted over
+  the framebuffer it shares with the Kindle's UI, which covers both the blank
+  on the way in and the one on the way out. There is no separate sleep screen;
+  an attempt at one is described in docs/kindle-port.md and why it was taken
+  out again.
 
 ## Written but not yet confirmed on a device
 
