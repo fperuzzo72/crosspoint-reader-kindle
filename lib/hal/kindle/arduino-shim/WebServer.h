@@ -183,6 +183,10 @@ class WebServer {
   void parseQuery(const std::string& query);
   void dispatch();
   void writeStatusLine(int code, const String& contentType);
+  // Frames one piece of a chunked body: its size in hex, the bytes, CRLF. A
+  // zero length writes the terminator that says the body is complete.
+  void writeChunk(const char* data, size_t length);
+  void finishChunked();
 
   uint16_t listenPort;
   int listenFd = -1;
@@ -209,7 +213,16 @@ class WebServer {
 
   std::vector<std::pair<String, String>> pendingHeaders;
   size_t requestContentLength = 0;
-  size_t plannedLength = SIZE_MAX;  // SIZE_MAX = "not announced"
+  // Three states, and conflating two of them emitted "Content-Length: 0" for
+  // every streamed response. NOT_SET means the handler said nothing, so the
+  // body is whatever send() was handed. UNKNOWN means the handler explicitly
+  // does not know yet and will stream, which is chunked transfer encoding.
+  // Anything else is a promise to send exactly that many bytes.
+  size_t plannedLength = CONTENT_LENGTH_NOT_SET;
+  // Set once the response went out as chunked; cleared by the terminating
+  // zero-length chunk, so an unterminated stream can be closed off.
+  bool chunked = false;
+  bool chunkedFinished = false;
   bool headersSent = false;
 
   HTTPUpload currentUpload;

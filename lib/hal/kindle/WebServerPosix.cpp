@@ -210,8 +210,10 @@ void WebServer::handleClient() {
   reqHeaders.clear();
   requestContentLength = 0;
   pendingHeaders.clear();
-  plannedLength = SIZE_MAX;
+  plannedLength = CONTENT_LENGTH_NOT_SET;
   headersSent = false;
+  chunked = false;
+  chunkedFinished = false;
 
   if (readRequest()) {
     dispatch();
@@ -219,6 +221,12 @@ void WebServer::handleClient() {
   if (!headersSent) {
     // A handler that sent nothing still owes the browser a response.
     send(500, "text/plain", String("handler produced no response"));
+  }
+  if (chunked && !chunkedFinished) {
+    // A handler that streamed but never sent its empty chunk. Close the stream
+    // rather than let the browser read a truncated body as a complete one,
+    // which is the whole reason this is chunked and not just a closed socket.
+    finishChunked();
   }
   activeClient.stop();
 }
@@ -504,10 +512,25 @@ void WebServer::send(const int code, const String& contentType, const String& co
   }
   writeStatusLine(code, contentType);
 
+  if (plannedLength == CONTENT_LENGTH_UNKNOWN) {
+    // The handler will stream and does not know the total. Chunked framing is
+    // what makes that safe: each piece carries its own size and a final empty
+    // one says the body ended. Ending at the closed socket instead would make
+    // a download cut short by a dropped connection look exactly like a whole
+    // one, and this server hands out books.
+    activeClient.write("Transfer-Encoding: chunked\r\n\r\n");
+    headersSent = true;
+    chunked = true;
+    if (!content.isEmpty()) {
+      writeChunk(content.c_str(), content.length());
+    }
+    return;
+  }
+
   // setContentLength() announces a body that arrives through later
   // sendContent() calls; without it the body is what is passed here.
   char lenLine[64];
-  const size_t length = plannedLength != SIZE_MAX ? plannedLength : content.length();
+  const size_t length = plannedLength != CONTENT_LENGTH_NOT_SET ? plannedLength : content.length();
   std::snprintf(lenLine, sizeof(lenLine), "Content-Length: %zu\r\n\r\n", length);
   activeClient.write(lenLine);
   headersSent = true;
@@ -515,6 +538,24 @@ void WebServer::send(const int code, const String& contentType, const String& co
   if (!content.isEmpty()) {
     activeClient.write(reinterpret_cast<const uint8_t*>(content.c_str()), content.length());
   }
+}
+
+void WebServer::writeChunk(const char* data, const size_t length) {
+  char header[32];
+  std::snprintf(header, sizeof(header), "%zx\r\n", length);
+  activeClient.write(header);
+  if (length > 0) {
+    activeClient.write(reinterpret_cast<const uint8_t*>(data), length);
+  }
+  activeClient.write("\r\n");
+}
+
+void WebServer::finishChunked() {
+  if (!chunked || chunkedFinished) {
+    return;
+  }
+  writeChunk(nullptr, 0);  // "0\r\n\r\n": the body is complete
+  chunkedFinished = true;
 }
 
 void WebServer::send_P(const int code, const char* contentType, const char* content) {
@@ -532,13 +573,23 @@ void WebServer::sendContent(const String& content) {
 }
 
 void WebServer::sendContent(const char* content, const size_t length) {
-  if (content == nullptr || length == 0) {
-    return;
-  }
   if (!headersSent) {
     // Streaming without a status line first: emit a bare 200 rather than
     // sending a naked body the browser cannot interpret.
     send(200, "text/plain", String());
+  }
+  if (chunked) {
+    // An empty piece is how a handler says it is done: that is the Arduino
+    // contract, and CrossPoint's list endpoints end with sendContent("").
+    if (content == nullptr || length == 0) {
+      finishChunked();
+      return;
+    }
+    writeChunk(content, length);
+    return;
+  }
+  if (content == nullptr || length == 0) {
+    return;
   }
   activeClient.write(reinterpret_cast<const uint8_t*>(content), length);
 }
