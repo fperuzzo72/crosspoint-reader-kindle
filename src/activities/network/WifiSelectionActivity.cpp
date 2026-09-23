@@ -88,6 +88,35 @@ void WifiSelectionActivity::onPromptEvent(const fui::ActionEvent& event, void* u
 void WifiSelectionActivity::onEnter() {
   Activity::onEnter();
 
+#if FREEINK_DEVICE_KINDLE
+  // This screen does not apply here, and the fix lives in it rather than in the
+  // nine callers: OPDS, KOReader sync, font downloads, the clock, OTA, the web
+  // server, Calibre and settings. Patching them one at a time would leave the
+  // next one anybody writes broken again. Backported from the HiBreak port,
+  // which reached the same conclusion for the same reason.
+  //
+  // The system owns association on this device. The shim's scanNetworks()
+  // returns zero on purpose, because scanning would fight the framework for the
+  // same radio, so this list opens empty with nothing to choose and every
+  // caller ends up back where it started. That is what "File Transfer returns
+  // to the home menu" was.
+  //
+  // Already connected: finish successfully at once, and the caller proceeds as
+  // if the screen had appeared and a network had been picked. Not connected:
+  // finish cancelled, which every caller already knows how to report.
+  {
+    const bool online = WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
+    // Unlike the Android port, which has to leave this blank because reading it
+    // needs a location permission, the name is genuinely available here: the
+    // shim asks the interface through SIOCGIWESSID, which this kernel still
+    // carries. So the caller can say which network it is serving on.
+    selectedSSID = online ? std::string(WiFi.SSID().c_str()) : std::string();
+    connectedIP = online ? std::string(WiFi.localIP().toString().c_str()) : std::string();
+    onComplete(online);
+    return;
+  }
+#endif
+
   // Load saved WiFi credentials - SD card operations need lock as we use SPI
   // for both
   {

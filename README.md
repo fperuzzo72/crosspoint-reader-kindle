@@ -85,7 +85,10 @@ All of this has been watched working on the device, not merely built.
 
   Note what has to happen first: this process cannot join a network (see below),
   so the Kindle has to be on Wi-Fi through its own settings before the server
-  has an address to serve on. On a device kept in airplane mode to stop the
+  has an address to serve on. The network-selection screen recognises that and
+  steps aside rather than opening a list it cannot fill; before that it opened
+  empty and every caller fell back to where it came from, which is what "File
+  Transfer returns to the home menu" was. On a device kept in airplane mode to stop the
   firmware downloader, turning the radio back on starts that downloader too. It
   cannot install anything — the jailbreak renamed the installers — but it will
   fill the card with a partial `update.bin.tmp` that is simply deleted.
