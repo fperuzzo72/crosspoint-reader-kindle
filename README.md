@@ -66,32 +66,15 @@ All of this has been watched working on the device, not merely built.
   The reader repaints whenever it finds that something else has painted over
   the framebuffer it shares with the Kindle's UI, which covers both the blank
   on the way in and the one on the way out.
+- File transfer over Wi-Fi: the file list loads, an upload lands on the card,
+  and a delete removes it. The Kindle has to be on Wi-Fi through its own
+  settings first, since this process cannot join a network (see below); the
+  network-selection screen recognises that and steps aside rather than opening
+  a list it cannot fill. On a device kept in airplane mode to stop the firmware
+  downloader, turning the radio back on starts that downloader too. It cannot
+  install anything, since the jailbreak renamed the installers, but it will
+  leave a partial `update.bin.tmp` that is simply deleted.
 - Leaving, from the end of the home menu or from Settings > System.
-
-## Newly working, not yet watched on the device
-
-- **File transfer over Wi-Fi.** The web server accepts multipart uploads, so a
-  browser can push books over the network. Ported back from the HiBreak Pro
-  port, which needed it because an Android phone does not show its filesystem
-  in Finder the way a Kindle does, and which is where the parser was written and
-  tested.
-
-  The streaming parser is covered by a host test (`test/multipart`) that runs
-  each body through seven chunk sizes down to one byte at a time, which places
-  the delimiter across a read boundary at every offset. That is the part most
-  likely to be wrong and it is the part that is checked. What has NOT been done
-  is opening a browser against a Kindle and watching a book land, so this sits
-  in its own section rather than above.
-
-  Note what has to happen first: this process cannot join a network (see below),
-  so the Kindle has to be on Wi-Fi through its own settings before the server
-  has an address to serve on. The network-selection screen recognises that and
-  steps aside rather than opening a list it cannot fill; before that it opened
-  empty and every caller fell back to where it came from, which is what "File
-  Transfer returns to the home menu" was. On a device kept in airplane mode to stop the
-  firmware downloader, turning the radio back on starts that downloader too. It
-  cannot install anything — the jailbreak renamed the installers — but it will
-  fill the card with a partial `update.bin.tmp` that is simply deleted.
 
 ## What does not
 
