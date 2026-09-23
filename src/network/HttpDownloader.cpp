@@ -7,6 +7,7 @@
 #include <esp_wifi.h>
 
 #include <functional>
+#include <HalStorage.h>
 #include <string>
 
 #if defined(FREEINK_NET_WOLFSSL)
@@ -63,6 +64,46 @@ struct WifiPowerSaveGuard {
   }
 };
 
+#if defined(FREEINK_NET_WOLFSSL) && FREEINK_DEVICE_KINDLE
+// The trust anchors, read once from the card and kept.
+//
+// Read rather than compiled in: the set expires and gets revoked, and a file
+// the user can replace beats a binary they would have to wait for. Kept rather
+// than re-read because wolfSSL wants the whole PEM as one buffer and a reading
+// session may do many requests.
+constexpr const char* KINDLE_CA_BUNDLE_PATH = "/crosspoint/cacert.pem";
+
+const char* kindleRootCAs() {
+  static std::string pem;
+  static bool tried = false;
+  if (tried) {
+    return pem.empty() ? nullptr : pem.c_str();
+  }
+  tried = true;
+
+  HalFile f;
+  if (!Storage.openFileForRead("HTTP", KINDLE_CA_BUNDLE_PATH, f)) {
+    return nullptr;
+  }
+  const size_t size = f.size();
+  // A bundle is a couple of hundred KB. Anything wildly outside that is not a
+  // bundle, and load_verify_buffer would be handed nonsense.
+  if (size == 0 || size > 4u * 1024u * 1024u) {
+    f.close();
+    return nullptr;
+  }
+  pem.resize(size);
+  const int got = f.read(reinterpret_cast<uint8_t*>(&pem[0]), size);
+  f.close();
+  if (got <= 0 || static_cast<size_t>(got) != size) {
+    pem.clear();
+    return nullptr;
+  }
+  std::fprintf(stderr, "[kindle] CA bundle loaded: %zu bytes from %s\n", size, KINDLE_CA_BUNDLE_PATH);
+  return pem.c_str();
+}
+#endif
+
 #if defined(FREEINK_NET_WOLFSSL)
 HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std::string& username,
                                          const std::string& password, Sink& sink, bool downgradeRedirectsToHttp) {
@@ -72,7 +113,33 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
   for (int hop = 0; hop <= MAX_REDIRECTS; ++hop) {
     freeink::SecureHttpClient http;
     http.setTimeout(HTTP_TIMEOUT_MS);
+#if FREEINK_DEVICE_KINDLE
+    // Verify the peer, and refuse rather than fall back if there is nothing to
+    // verify against.
+    //
+    // setInsecure() is the ESP32 choice and defensible there: a CA bundle is
+    // real flash on a microcontroller. It is not defensible here. These
+    // requests carry preemptive HTTP Basic credentials, so unverified TLS hands
+    // the password to whoever answers the connection — encrypted, and to the
+    // wrong party. That is the same hazard this port refused when it made https
+    // fail outright instead of retrying in the clear, and turning TLS on would
+    // be a poor moment to start accepting it.
+    {
+      const char* rootCA = kindleRootCAs();
+      if (rootCA == nullptr) {
+        // stderr, not LOG_ERR: this build defines no ENABLE_SERIAL_LOG, so
+        // every LOG_* macro compiles to nothing. A refusal nobody can see is
+        // just a download that failed for no reason.
+        std::fprintf(stderr,
+                     "[kindle] no CA bundle at %s; refusing https rather than skipping verification\n",
+                     KINDLE_CA_BUNDLE_PATH);
+        return HttpDownloader::HTTP_ERROR;
+      }
+      http.setCACert(rootCA);
+    }
+#else
     http.setInsecure();
+#endif
     if (!http.begin(url)) {
       LOG_ERR("HTTP", "wolfSSL bad URL: %s", url.c_str());
       return HttpDownloader::HTTP_ERROR;

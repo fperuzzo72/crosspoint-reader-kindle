@@ -76,14 +76,32 @@ All of this has been watched working on the device, not merely built.
   leave a partial `update.bin.tmp` that is simply deleted.
 - Leaving, from the end of the home menu or from Settings > System.
 
+### TLS, if wolfSSL is built
+
+Not on by default, because the library is a separate cross-build:
+`tools/kindle/build-wolfssl.sh` produces it and `trylink.sh` picks it up by
+presence. Without it the reader still builds and https is refused, as before.
+
+None of this is new code in the reader. `HttpDownloader` has had a wolfSSL
+branch behind `FREEINK_NET_WOLFSSL` all along, and the SDK's `SecureClient`
+sits on Arduino's `Client`, which this port's shim already provides. TLS here
+was a cross-build problem, not a "write TLS" problem.
+
+Two things differ from the ESP32 targets deliberately. The library is upstream
+wolfSSL rather than the Arduino repackaging, configured through autotools,
+because the memory settings that repackaging exists to carry answer to an
+ESP32's heap and not to 256 MB. And **certificates are verified**: the ESP32
+path calls `setInsecure()`, which is defensible where a CA bundle is real
+flash, and is not defensible here, because these requests carry preemptive
+HTTP Basic credentials and unverified TLS hands the password to whoever
+answers the connection. The trust anchors are read from
+`/mnt/us/crosspoint/cacert.pem`, and https is refused outright when that file
+is missing rather than falling back to an unchecked connection.
+
 ## What does not
 
 Listed because a port that hides its edges wastes the next person's afternoon.
 
-- **HTTPS is refused, never downgraded to HTTP.** TLS is unimplemented. The
-  tree sends preemptive HTTP Basic credentials for OPDS and KOReader sync, so
-  a silent retry in the clear would put a password on the wire. In practice
-  this rules out most real OPDS catalogues and sync servers.
 - **Wi-Fi join and hotspot do not work.** The system owns the radio on this
   device. CrossPoint can use a connection the Kindle has already made; it
   cannot make one.

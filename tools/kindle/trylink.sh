@@ -42,6 +42,31 @@ for d in lib/*/; do INC="$INC -I${d%/}"; done
 INC="$INC -Ilib/miniz/src -Ilib/uzlib/src -Ilib/hal/kindle -Ilib/hal -Isrc -Ilib"
 INC="$INC -Isrc/components -Isrc/activities -Isrc/util -Isrc/network"
 DEF="-DFREEINK_DEVICE_KINDLE=1"
+
+# TLS, when wolfSSL has been cross-built by tools/kindle/build-wolfssl.sh.
+#
+# Opt-in by presence rather than by a flag: the library takes minutes to build
+# and lives outside the repo, so a tree without it still compiles and links,
+# just without https. HttpDownloader already branches on FREEINK_NET_WOLFSSL and
+# the SDK's SecureClient sits on Arduino's Client interface, which this port's
+# shim provides, so nothing else has to change.
+WOLFSSL_PREFIX=build/kindle/wolfssl/install
+WOLFSSL_LIB=""
+if [ -f "$WOLFSSL_PREFIX/lib/libwolfssl.a" ]; then
+    INC="$INC -I$WOLFSSL_PREFIX/include"
+    # options.h carries the feature set this library was actually configured
+    # with, and autotools builds expect every user of the headers to include it
+    # before ssl.h. SecureClient.cpp includes only ssl.h, because on the ESP32
+    # the equivalent arrives through WOLFSSL_USER_SETTINGS. Without it the
+    # headers hide everything optional: the first symptom was wolfSSL_UseSNI
+    # not being declared while the library plainly contains it.
+    INC="$INC -include wolfssl/options.h"
+    DEF="$DEF -DFREEINK_NET_WOLFSSL=1"
+    WOLFSSL_LIB="$WOLFSSL_PREFIX/lib/libwolfssl.a"
+    echo "--- wolfSSL found: building with TLS ---"
+else
+    echo "--- no wolfSSL (run tools/kindle/build-wolfssl.sh); https will be refused ---"
+fi
 # expat is configured by defines rather than a config header, and xmlparse.c
 # refuses to build without them.
 CDEFS="-DXML_GE=0 -DXML_CONTEXT_BYTES=1024"
@@ -69,6 +94,20 @@ NEWEST_HEADER=$(find lib src freeink-sdk build/kindle/census-defines.h \
 if [ ! -f "$OUT/.stamp" ] || [ -n "$NEWEST_HEADER" ]; then
     echo "--- a header changed (${NEWEST_HEADER:-first run}); discarding objects ---"
     rm -f "$OUT"/*.o
+fi
+
+# And the FLAGS, which are neither a source nor a header.
+#
+# Third variant of the same trap. Rebuilding on a newer source misses headers;
+# watching headers too still misses this. Turning on -DFREEINK_NET_WOLFSSL
+# changed nothing on disk, so every object was kept, the link reported zero
+# undefined references, and the binary contained no TLS at all. A build that
+# looks complete and is not is the expensive kind.
+FLAGS_NOW="$DEF|$CDEFS|$INC"
+if [ ! -f "$OUT/.flags" ] || [ "$FLAGS_NOW" != "$(cat "$OUT/.flags" 2>/dev/null)" ]; then
+    echo "--- compile flags changed; discarding objects ---"
+    rm -f "$OUT"/*.o
+    printf '%s' "$FLAGS_NOW" > "$OUT/.flags"
 fi
 touch "$OUT/.stamp"
 
@@ -212,7 +251,7 @@ $CROSS -o "$OUT/crosspoint" $objs \
     -static-libstdc++ -static-libgcc \
     -Wl,--gc-sections \
     -Wl,--start-group $archives -Wl,--end-group \
-    build/kindle/FBInk/Release/libfbink.a -lrt -lpthread 2>"$OUT/link.err"
+    build/kindle/FBInk/Release/libfbink.a $WOLFSSL_LIB -lrt -lpthread 2>"$OUT/link.err"
 echo "exit: $?"
 echo
 echo "--- undefined symbols, by frequency ---"
