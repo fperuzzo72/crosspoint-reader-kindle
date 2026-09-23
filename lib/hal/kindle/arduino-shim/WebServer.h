@@ -106,7 +106,11 @@ class WebServer {
 
   void on(const String& uri, THandlerFunction handler);
   void on(const String& uri, HTTPMethod method, THandlerFunction handler);
-  // The upload overload is accepted so routes compile, and refused at begin().
+  // The upload overload streams multipart/form-data: the upload handler is
+  // called with UPLOAD_FILE_START, then UPLOAD_FILE_WRITE for each chunk, then
+  // UPLOAD_FILE_END, and only afterwards does the main handler run to send the
+  // response. That ordering is the Arduino original's, and CrossPoint's
+  // handlers depend on it.
   void on(const String& uri, HTTPMethod method, THandlerFunction handler, THandlerFunction uploadHandler);
   void onNotFound(THandlerFunction handler) { notFoundHandler = handler; }
   // The server does NOT take ownership, matching the Arduino original.
@@ -153,6 +157,10 @@ class WebServer {
     String uri;
     HTTPMethod method;
     THandlerFunction handler;
+    // Runs while the request body is still being read, once per upload event,
+    // and is what makes a browser's POST reach the filesystem in chunks
+    // instead of through a buffer the size of the book.
+    THandlerFunction uploadHandler;
   };
 
   bool readRequest();
@@ -163,7 +171,15 @@ class WebServer {
   uint16_t listenPort;
   int listenFd = -1;
   bool corsEnabled = false;
-  bool uploadRouteRegistered = false;
+  // Boundary from the Content-Type of a multipart request, without the leading
+  // dashes. Empty when the body is not multipart.
+  std::string multipartBoundary;
+
+  // Streams a multipart body: file parts go to `uploadHandler` chunk by chunk,
+  // ordinary fields become args so arg("family") works the same as on a
+  // urlencoded form. Returns false when the body is malformed or the peer
+  // vanished mid-transfer.
+  bool readMultipart(const THandlerFunction& uploadHandler);
 
   std::vector<Route> routes;
   THandlerFunction notFoundHandler;

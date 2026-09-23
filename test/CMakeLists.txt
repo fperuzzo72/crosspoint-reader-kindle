@@ -72,3 +72,4 @@ add_subdirectory(kindle_arduino_string)
 add_subdirectory(kindle_touch)
 
 add_subdirectory(kindle_crypto)
+add_subdirectory(multipart)

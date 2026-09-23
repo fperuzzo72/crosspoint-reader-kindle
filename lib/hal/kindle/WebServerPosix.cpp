@@ -12,6 +12,8 @@
 #include <cstring>
 #include <iterator>
 
+#include "MultipartParser.h"
+
 #include "arduino-shim/WebServer.h"
 
 namespace detail {
@@ -126,14 +128,6 @@ void WebServer::begin(const uint16_t port) {
   stop();
   listenPort = port;
 
-  if (uploadRouteRegistered) {
-    // Refuse loudly rather than accept a browser's POST and drop the book.
-    std::fprintf(stderr,
-                 "[kindle] WebServer: a route registers an upload handler, and multipart\n"
-                 "         upload is not implemented on this target. Refusing to start so\n"
-                 "         the failure is here rather than halfway through a file.\n");
-    return;
-  }
 
   listenFd = socket(AF_INET, SOCK_STREAM, 0);
   if (listenFd < 0) {
@@ -168,12 +162,11 @@ void WebServer::stop() {
 void WebServer::on(const String& u, THandlerFunction handler) { on(u, HTTP_ANY, handler); }
 
 void WebServer::on(const String& u, const HTTPMethod m, THandlerFunction handler) {
-  routes.push_back(Route{u, m, handler});
+  routes.push_back(Route{u, m, handler, nullptr});
 }
 
-void WebServer::on(const String& u, const HTTPMethod m, THandlerFunction handler, THandlerFunction) {
-  uploadRouteRegistered = true;
-  routes.push_back(Route{u, m, handler});
+void WebServer::on(const String& u, const HTTPMethod m, THandlerFunction handler, THandlerFunction uploadHandler) {
+  routes.push_back(Route{u, m, handler, uploadHandler});
 }
 
 void WebServer::collectHeaders(const char* headerKeys[], const size_t count) {
@@ -233,6 +226,7 @@ bool WebServer::readRequest() {
 
   size_t contentLength = 0;
   bool urlencodedBody = false;
+  multipartBoundary.clear();
   while (readLine(activeClient, &line) && !line.empty()) {
     const size_t colon = line.find(':');
     if (colon == std::string::npos) {
@@ -248,8 +242,24 @@ bool WebServer::readRequest() {
     if (name == "content-length") {
       contentLength = static_cast<size_t>(std::strtoul(value.c_str(), nullptr, 10));
       requestContentLength = contentLength;
-    } else if (name == "content-type" && value.find("application/x-www-form-urlencoded") != std::string::npos) {
-      urlencodedBody = true;
+    } else if (name == "content-type") {
+      if (value.find("application/x-www-form-urlencoded") != std::string::npos) {
+        urlencodedBody = true;
+      } else if (value.find("multipart/form-data") != std::string::npos) {
+        // The boundary can be quoted and can carry trailing parameters; take
+        // what follows boundary= up to the next semicolon and strip quotes.
+        const size_t b = value.find("boundary=");
+        if (b != std::string::npos) {
+          std::string bound = value.substr(b + 9);
+          const size_t semi = bound.find(';');
+          if (semi != std::string::npos) {
+            bound = bound.substr(0, semi);
+          }
+          while (!bound.empty() && (bound.front() == '"' || bound.front() == ' ')) bound.erase(bound.begin());
+          while (!bound.empty() && (bound.back() == '"' || bound.back() == ' ' || bound.back() == '\r')) bound.pop_back();
+          multipartBoundary = bound;
+        }
+      }
     }
     reqHeaders[name] = value;
   }
@@ -271,6 +281,60 @@ bool WebServer::readRequest() {
     parseQuery(body);
   }
   return true;
+}
+
+// Streams a multipart body into the route's upload handler.
+//
+// The parsing itself lives in lib/hal/posix/MultipartParser.cpp, which needs no
+// socket and is therefore covered by a host test. What is left here is the
+// wiring: bytes come from the client, and each event becomes the HTTPUpload
+// state the Arduino API hands to a handler that takes no arguments.
+bool WebServer::readMultipart(const THandlerFunction& uploadHandler) {
+  if (multipartBoundary.empty()) {
+    return false;
+  }
+  crosspoint::multipart::Callbacks cb;
+  cb.fill = [this](uint8_t* buf, const size_t len) { return activeClient.read(buf, len); };
+
+  cb.onFileStart = [this, &uploadHandler](const crosspoint::multipart::PartInfo& info) {
+    currentUpload.status = UPLOAD_FILE_START;
+    currentUpload.filename = String(info.filename);
+    currentUpload.name = String(info.name);
+    currentUpload.type = String(info.type);
+    currentUpload.totalSize = 0;
+    currentUpload.currentSize = 0;
+    currentUpload.buf = nullptr;
+    if (uploadHandler) {
+      uploadHandler();
+    }
+  };
+
+  cb.onFileData = [this, &uploadHandler](const uint8_t* data, const size_t len) {
+    currentUpload.status = UPLOAD_FILE_WRITE;
+    // The Arduino struct's buf is non-const and handlers only read it.
+    currentUpload.buf = const_cast<uint8_t*>(data);
+    currentUpload.currentSize = len;
+    currentUpload.totalSize += len;
+    if (uploadHandler) {
+      uploadHandler();
+    }
+  };
+
+  cb.onFileEnd = [this, &uploadHandler](const bool complete, const size_t total) {
+    currentUpload.status = complete ? UPLOAD_FILE_END : UPLOAD_FILE_ABORTED;
+    currentUpload.buf = nullptr;
+    currentUpload.currentSize = 0;
+    currentUpload.totalSize = total;
+    if (uploadHandler) {
+      uploadHandler();
+    }
+  };
+
+  // Ordinary fields become args, so a handler reads them through arg() without
+  // caring that the form was multipart. CrossPoint's font upload depends on it.
+  cb.onField = [this](const std::string& name, const std::string& value) { reqArgs[name] = value; };
+
+  return crosspoint::multipart::parse(multipartBoundary, cb);
 }
 
 void WebServer::parseQuery(const std::string& query) {
@@ -318,6 +382,12 @@ void WebServer::dispatch() {
     }
     if (r.method != HTTP_ANY && r.method != reqMethod) {
       continue;
+    }
+    // The upload handler runs while the body is still on the wire; the route's
+    // main handler runs afterwards and sends the response. That order is the
+    // Arduino original's, and CrossPoint's handlers read the finished state.
+    if (!multipartBoundary.empty() && r.uploadHandler) {
+      readMultipart(r.uploadHandler);
     }
     if (r.handler) {
       r.handler();

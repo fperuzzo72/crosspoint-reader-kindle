@@ -31,13 +31,7 @@ std::vector<HomeMenuItem> HomeActivity::menuOrder() const {
   if (hasOpdsServers) {
     order.push_back(HomeMenuItem::OPDS_BROWSER);
   }
-#if !FREEINK_DEVICE_KINDLE
-  // File Transfer opens the built-in web server, which on the Kindle refuses
-  // to start: one of its routes registers an upload handler and multipart
-  // upload is unimplemented there. An entry that cannot do anything is worse
-  // than no entry, so it is not offered.
   order.push_back(HomeMenuItem::FILE_TRANSFER);
-#endif
   order.push_back(HomeMenuItem::SETTINGS_MENU);
 #if FREEINK_DEVICE_KINDLE
   // No Sleep entry. It worked, in the sense that CrossPoint's sleep screen was

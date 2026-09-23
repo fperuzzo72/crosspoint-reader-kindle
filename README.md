@@ -68,6 +68,21 @@ All of this has been watched working on the device, not merely built.
   on the way in and the one on the way out.
 - Leaving, from the end of the home menu or from Settings > System.
 
+## Newly working, not yet watched on the device
+
+- **File transfer over Wi-Fi.** The web server accepts multipart uploads, so a
+  browser can push books over the network. Ported back from the HiBreak Pro
+  port, which needed it because an Android phone does not show its filesystem
+  in Finder the way a Kindle does, and which is where the parser was written and
+  tested.
+
+  The streaming parser is covered by a host test (`test/multipart`) that runs
+  each body through seven chunk sizes down to one byte at a time, which places
+  the delimiter across a read boundary at every offset. That is the part most
+  likely to be wrong and it is the part that is checked. What has NOT been done
+  is opening a browser against a Kindle and watching a book land, so this sits
+  in its own section rather than above.
+
 ## What does not
 
 Listed because a port that hides its edges wastes the next person's afternoon.
@@ -76,11 +91,6 @@ Listed because a port that hides its edges wastes the next person's afternoon.
   tree sends preemptive HTTP Basic credentials for OPDS and KOReader sync, so
   a silent retry in the clear would put a password on the wire. In practice
   this rules out most real OPDS catalogues and sync servers.
-- **The built-in web server does not start.** Multipart upload is
-  unimplemented, one route registers an upload handler, and `begin()` refuses
-  rather than accepting a POST it would drop halfway through a file. File
-  Transfer is therefore not offered on the home menu here: it could only ever
-  have opened a server that refuses to run.
 - **Wi-Fi join and hotspot do not work.** The system owns the radio on this
   device. CrossPoint can use a connection the Kindle has already made; it
   cannot make one.
