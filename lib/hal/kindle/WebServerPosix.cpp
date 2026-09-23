@@ -120,7 +120,18 @@ bool readLine(WiFiClient& c, std::string* out) {
 // otherwise hide it and recurse.
 using namespace detail;
 
-WebServer::~WebServer() { stop(); }
+WebServer::~WebServer() {
+  stop();
+  // The caller hands over a bare `new`: CrossPointWebServer's addHandler call
+  // says in a comment that the server deletes it. Not in stop(), because
+  // begin() calls stop() first and would then free a handler registered before
+  // it; the server object is reset per session, so here is the same moment in
+  // practice.
+  for (Registration& r : registrations) {
+    delete r.handler;
+    r.handler = nullptr;
+  }
+}
 
 void WebServer::begin() { begin(listenPort); }
 
@@ -162,11 +173,20 @@ void WebServer::stop() {
 void WebServer::on(const String& u, THandlerFunction handler) { on(u, HTTP_ANY, handler); }
 
 void WebServer::on(const String& u, const HTTPMethod m, THandlerFunction handler) {
-  routes.push_back(Route{u, m, handler, nullptr});
+  Registration r;
+  r.uri = u;
+  r.method = m;
+  r.fn = handler;
+  registrations.push_back(std::move(r));
 }
 
 void WebServer::on(const String& u, const HTTPMethod m, THandlerFunction handler, THandlerFunction uploadHandler) {
-  routes.push_back(Route{u, m, handler, uploadHandler});
+  Registration r;
+  r.uri = u;
+  r.method = m;
+  r.fn = handler;
+  r.uploadFn = uploadHandler;
+  registrations.push_back(std::move(r));
 }
 
 void WebServer::collectHeaders(const char* headerKeys[], const size_t count) {
@@ -363,20 +383,28 @@ String WebServer::urlDecode(const String& encoded) {
 
 void WebServer::addHandler(RequestHandler* handler) {
   if (handler != nullptr) {
-    handlers.push_back(handler);
+    Registration r;
+  r.handler = handler;
+  registrations.push_back(std::move(r));
   }
 }
 
 void WebServer::dispatch() {
-  // Handler objects first, in registration order: they claim whole subtrees
-  // (WebDAV does), which an exact-match route cannot express.
-  for (RequestHandler* h : handlers) {
-    if (h->canHandle(*this, reqMethod, reqUri) && h->handle(*this, reqMethod, reqUri)) {
-      return;
+  // One pass, in registration order, mixing routes and handler objects. The
+  // order is the contract: the Arduino WebServer keeps both in a single chain,
+  // and the tree registers "/" near the top of setup while adding WebDAV at the
+  // bottom. WebDAV claims GET for every uri, so consulting handler objects
+  // first handed "/" to it and the browser got "405 Method Not Allowed" for a
+  // directory instead of the file manager.
+  for (const Registration& r : registrations) {
+    if (r.handler != nullptr) {
+      // A handler that declines, either by not claiming or by returning false,
+      // leaves the request to whatever was registered after it.
+      if (r.handler->canHandle(*this, reqMethod, reqUri) && r.handler->handle(*this, reqMethod, reqUri)) {
+        return;
+      }
+      continue;
     }
-  }
-
-  for (const Route& r : routes) {
     if (r.uri != reqUri) {
       continue;
     }
@@ -386,11 +414,11 @@ void WebServer::dispatch() {
     // The upload handler runs while the body is still on the wire; the route's
     // main handler runs afterwards and sends the response. That order is the
     // Arduino original's, and CrossPoint's handlers read the finished state.
-    if (!multipartBoundary.empty() && r.uploadHandler) {
-      readMultipart(r.uploadHandler);
+    if (!multipartBoundary.empty() && r.uploadFn) {
+      readMultipart(r.uploadFn);
     }
-    if (r.handler) {
-      r.handler();
+    if (r.fn) {
+      r.fn();
       return;
     }
   }

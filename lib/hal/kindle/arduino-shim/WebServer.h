@@ -78,8 +78,9 @@ class WebServer;
 // A route handler object, as opposed to the lambda form on()-style routes take.
 // WebDAVHandler is one: it claims whole URI subtrees and needs the raw body.
 //
-// Registered handlers are consulted before the on() routes, in registration
-// order, and the first that claims the request gets it.
+// Handler objects and on() routes share ONE registration order, and the first
+// that claims a request gets it. That matters: the Arduino WebServer keeps both
+// in a single chain, and the tree is written against that. See Registration.
 class RequestHandler {
  public:
   virtual ~RequestHandler() = default;
@@ -153,14 +154,29 @@ class WebServer {
   void enableCORS(bool enable = true) { corsEnabled = enable; }
 
  private:
-  struct Route {
+  // One entry per on() or addHandler() call, kept in the order they were made.
+  //
+  // Two lists, with handler objects consulted first, is the obvious shape and
+  // it is wrong. The Arduino WebServer this stands in for keeps on() routes and
+  // addHandler() objects in a single chain, so the tree can and does rely on
+  // registration order — and exactly one case in it depends on the difference:
+  // "/" is registered as a route near the top of setup, WebDAVHandler is added
+  // at the bottom, and WebDAV claims GET for EVERY uri. Consulting handlers
+  // first meant a browser asking for "/" got WebDAV's "405 Method Not Allowed"
+  // for a directory instead of the file manager.
+  struct Registration {
+    // Set for addHandler(). Owned: deleted with the server, which is what
+    // CrossPointWebServer says it expects when it hands one over.
+    RequestHandler* handler = nullptr;
+
+    // Set for on().
     String uri;
-    HTTPMethod method;
-    THandlerFunction handler;
+    HTTPMethod method = HTTP_ANY;
+    THandlerFunction fn;
     // Runs while the request body is still being read, once per upload event,
     // and is what makes a browser's POST reach the filesystem in chunks
     // instead of through a buffer the size of the book.
-    THandlerFunction uploadHandler;
+    THandlerFunction uploadFn;
   };
 
   bool readRequest();
@@ -181,7 +197,7 @@ class WebServer {
   // vanished mid-transfer.
   bool readMultipart(const THandlerFunction& uploadHandler);
 
-  std::vector<Route> routes;
+  std::vector<Registration> registrations;
   THandlerFunction notFoundHandler;
 
   WiFiClient activeClient;
@@ -198,7 +214,6 @@ class WebServer {
 
   HTTPUpload currentUpload;
   HTTPRaw currentRaw;
-  std::vector<RequestHandler*> handlers;
 };
 
 // The tree also spells it this way on newer cores.
