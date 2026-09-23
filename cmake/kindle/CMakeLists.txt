@@ -41,19 +41,17 @@ endif()
 
 # --- platform layer ---------------------------------------------------------
 # Everything that makes the rest of the tree believe it is still on an Arduino.
-add_library(crosspoint_kindle_platform STATIC
-  ${KINDLE_DIR}/ArduinoString.cpp
-  ${KINDLE_DIR}/ArduinoPlatform.cpp
-  ${KINDLE_DIR}/ArduinoShim.cpp
-  ${KINDLE_DIR}/SdFatPosix.cpp
-  ${KINDLE_DIR}/NetworkPosix.cpp
-  ${KINDLE_DIR}/CryptoPosix.cpp
-  ${KINDLE_DIR}/WebServerPosix.cpp
-  ${KINDLE_DIR}/KindleGrayExpand.cpp
-  ${KINDLE_DIR}/KindleFrameBuffer.cpp
-  ${KINDLE_DIR}/KindleTouchClassifier.cpp
-  ${KINDLE_DIR}/KindleTouchDevice.cpp
-)
+#
+# Globbed rather than listed. The list had gone stale without anyone noticing:
+# HttpClientPosix.cpp and WebSocketsPosix.cpp were written and never added, and
+# MultipartParser.cpp arrived with the upload backport and was not either. This
+# directory is by definition every file that makes the rest of the tree believe
+# it is still on an Arduino, so enumerating it only creates a way to be wrong.
+# tools/kindle/trylink.sh, which is what actually builds this port, already
+# globs; this now agrees with it. The reader sources below are globbed for the
+# same reason.
+file(GLOB KINDLE_PLATFORM_SOURCES ${KINDLE_DIR}/*.cpp)
+add_library(crosspoint_kindle_platform STATIC ${KINDLE_PLATFORM_SOURCES})
 
 target_include_directories(crosspoint_kindle_platform PUBLIC
   # arduino-shim goes FIRST so that `#include <Arduino.h>` inside the SDK
