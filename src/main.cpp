@@ -186,8 +186,32 @@ static bool finishWifiSessionWithoutRestart() {
 }
 #endif
 
+#if FREEINK_DEVICE_KINDLE
+// Every silent restart below exists for one ESP32 reason: bringing the radio up,
+// or handing the storage to a USB host, fragments the heap badly enough that a
+// reset is the cheapest cure. None of it applies to a Linux process with 256 MB
+// that never owned a radio, and ESP.restart() here re-execs the binary — so the
+// cure would be the only damage, the reader vanishing mid-session and coming
+// back at Home. The reboot target does not even survive: it lives in a global
+// that exec discards.
+//
+// finishWifiSessionWithoutRestart() looks like it already covers this, and does
+// not. It returns false unless BoardConfig::hasTouch(), and on this target
+// BoardConfig::ACTIVE falls through to the X4 profile, which is NO_TOUCH — the
+// Kindle's touchscreen is described by FREEINK_CAP_TOUCH, not by that runtime
+// profile. Found by counting three "suspend detection armed" lines, a line
+// printed once per process, inside a single launcher run.
+static bool refuseRestart(const char* what) {
+  std::fprintf(stderr, "[kindle] %s refused: re-execing fixes nothing this process has\n", what);
+  return true;
+}
+#endif
+
 void silentRestart() {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
+#if FREEINK_DEVICE_KINDLE
+  if (refuseRestart("silent restart")) return;
+#endif
 #if FREEINK_CAP_TOUCH
   if (finishWifiSessionWithoutRestart()) return;
 #endif
@@ -205,6 +229,9 @@ void silentRestart() {
 
 void silentRestartToReader() {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
+#if FREEINK_DEVICE_KINDLE
+  if (refuseRestart("silent restart to reader")) return;
+#endif
 #if FREEINK_CAP_TOUCH
   if (finishWifiSessionWithoutRestart()) return;
 #endif
@@ -218,6 +245,9 @@ void silentRestartToReader() {
 
 void restartToHomeAfterStorageHandoff() {
   if (deepSleepInProgress) return;  // sleeping supersedes the storage handoff reboot
+#if FREEINK_DEVICE_KINDLE
+  if (refuseRestart("restart after storage handoff")) return;
+#endif
   silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Restart after storage handoff (target=home)");
