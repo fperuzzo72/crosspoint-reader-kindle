@@ -46,6 +46,15 @@ echo "--- configuring for arm-kindlepw2-linux-gnueabi"
 # RFC 6066 max fragment length, Curve25519 and FFDHE-2048. Left out on purpose
 # are WOLFSSL_SP_SMALL and the FP_MAX_BITS cap, which are there to survive an
 # ESP32's ~50KB of free heap; here they would only make it slower.
+#
+# --with-max-rsa-bits=4096 is NOT optional, and omitting it fails silently
+# rather than loudly. With WOLFSSL_SP_MATH_ALL and no HAVE_FFDHE_4096,
+# sp_int.h applies its own default -- "Default to max 3072 for general RSA and
+# DH" -- and RSA_MAX_SIZE follows it. A signature made by a 4096-bit key then
+# fails to verify with ASN_SIG_CONFIRM_E, which reads like a bad certificate
+# and is not. 59 of the 121 CAs in a current Mozilla bundle are RSA-4096,
+# including the USERTrust root that www.gutenberg.org chains to, so this is
+# most of the public trust store rather than an edge case.
 ./configure \
     --host=arm-kindlepw2-linux-gnueabi \
     --prefix="$PREFIX" \
@@ -56,6 +65,7 @@ echo "--- configuring for arm-kindlepw2-linux-gnueabi"
     --enable-curve25519 \
     --enable-dh \
     --enable-supportedcurves \
+    --with-max-rsa-bits=4096 \
     --disable-examples \
     --disable-crypttests \
     --disable-oldtls

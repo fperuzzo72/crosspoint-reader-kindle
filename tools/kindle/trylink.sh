@@ -89,7 +89,12 @@ CDEFS="-DXML_GE=0 -DXML_CONTEXT_BYTES=1024"
 # takes, because nothing fails. So the whole tree's headers are watched and any
 # change discards every object. That costs a full rebuild, which is about a
 # minute, and buys never having to wonder.
+# build/kindle/wolfssl is in here because its options.h carries the feature set
+# the library was configured with: raising the RSA ceiling changes that header
+# and nothing else, so without watching it the objects would be kept and the
+# rebuilt library would be linked against code compiled for the old limits.
 NEWEST_HEADER=$(find lib src freeink-sdk build/kindle/census-defines.h \
+    build/kindle/wolfssl/install/include \
     \( -name '*.h' -o -name '*.hpp' \) -newer "$OUT/.stamp" 2>/dev/null | head -1)
 if [ ! -f "$OUT/.stamp" ] || [ -n "$NEWEST_HEADER" ]; then
     echo "--- a header changed (${NEWEST_HEADER:-first run}); discarding objects ---"
