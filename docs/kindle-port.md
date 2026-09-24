@@ -827,3 +827,7 @@ deslocamento do ponteiro vira condicional,
     addge r6, r6, r1, lsl #1
 
 e a escrita do DC ganha o mesmo teste logo adiante. `r1` é o `iMCU`.
+
+Confirmado no aparelho em 24/09/2026: com os patches aplicados, o capítulo 2 de
+*Freaks, Geeks and Asperger Syndrome* abre com a figura renderizada. Antes, o
+programa morria ao entrar nele, que é o primeiro item do spine com imagem.
