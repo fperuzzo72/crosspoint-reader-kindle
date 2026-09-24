@@ -117,11 +117,26 @@ dropped, and each points the reader somewhere else:
 The bundle is loaded one certificate at a time. `wolfSSL_CTX_load_verify_buffer`
 walks a multi-certificate PEM in order and stops at the first it cannot parse,
 and `SecureClient` does not check its return, so one unparseable certificate
-silently discarded every one after it. Six of the 121 are rejected by this
-build, reported as `RSA_KEY_SIZE_E` and `ECC_KEY_SIZE_E` on 2048-bit and P-384
-keys, which does not fit those names and is not understood. Nothing depends on
-them today, but Go Daddy and Starfield are among them, so a catalogue chaining
-there would fail.
+silently discarded every one after it. Six of the 121 are rejected by this build, and the reason is not the one the
+error names. They are reported as `RSA_KEY_SIZE_E` and `ECC_KEY_SIZE_E` on
+2048-bit and P-384 keys, which are unremarkable sizes, and the size hypothesis
+is disproved by the bundle itself: it holds 21 RSA-2048 certificates and only
+four of them fail.
+
+What the six have in common is a **serial number of zero**, and the match is
+exact — the six certificates in the bundle with serial 0 are precisely the six
+rejected, with no other candidate. wolfSSL rejects those deliberately, in
+`asn.c`: RFC 5280 requires a positive serial, so a CA that issues 0 is
+non-conforming and it returns `ASN_PARSE_E`. The size error is applied later, on
+top, which is why the code points somewhere else entirely.
+
+The switch for it, `WOLFSSL_NO_ASN_STRICT`, is not taken here. It relaxes
+seventeen RFC-conformance checks in `asn.c`, and those apply to every
+certificate parsed, including the ones a server presents. Trading that for six
+trust anchors is a poor deal in a build that verifies certificates precisely so
+it does not have to trust whatever answers. The cost is real and worth stating:
+Go Daddy Root G2, both Starfield roots and a Hellenic Academic pair are
+unusable, so a catalogue chaining to them fails.
 
 ## What does not
 
