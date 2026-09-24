@@ -75,6 +75,10 @@ All of this has been watched working on the device, not merely built.
   install anything, since the jailbreak renamed the installers, but it will
   leave a partial `update.bin.tmp` that is simply deleted.
 - Leaving, from the end of the home menu or from Settings > System.
+- OPDS over HTTPS, with certificates verified: the catalogue browses and a book
+  downloads. Downloads land wherever `opdsDownloadFolder` points in
+  Settings > OPDS Servers; empty means the card root, so set it to `/ebooks`
+  to keep the library in one place.
 
 ### TLS, if wolfSSL is built
 
@@ -97,6 +101,27 @@ HTTP Basic credentials and unverified TLS hands the password to whoever
 answers the connection. The trust anchors are read from
 `/mnt/us/crosspoint/cacert.pem`, and https is refused outright when that file
 is missing rather than falling back to an unchecked connection.
+Two flags in `build-wolfssl.sh` are load-bearing, both fail silently when
+dropped, and each points the reader somewhere else:
+
+- `--with-max-rsa-bits=4096`. Without it sp_int.h applies its own 3072-bit
+  default and a signature by a 4096-bit key fails as `ASN_SIG_CONFIRM_E`,
+  which reads like a bad certificate. 59 of the 121 CAs in a current Mozilla
+  bundle are RSA-4096.
+- `--enable-altcertchains`. Without it the chain a server PRESENTS must end at
+  a trusted root, and cross-signed chains do not: gutenberg.org's ends at AAA
+  Certificate Services, no longer in the bundle, while the trusted anchor sits
+  in the middle of what was sent. The failure is `ASN_NO_SIGNER_E`, which reads
+  as "the root is missing" while the root is loaded.
+
+The bundle is loaded one certificate at a time. `wolfSSL_CTX_load_verify_buffer`
+walks a multi-certificate PEM in order and stops at the first it cannot parse,
+and `SecureClient` does not check its return, so one unparseable certificate
+silently discarded every one after it. Six of the 121 are rejected by this
+build, reported as `RSA_KEY_SIZE_E` and `ECC_KEY_SIZE_E` on 2048-bit and P-384
+keys, which does not fit those names and is not understood. Nothing depends on
+them today, but Go Daddy and Starfield are among them, so a catalogue chaining
+there would fail.
 
 ## What does not
 
