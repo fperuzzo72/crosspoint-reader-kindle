@@ -39,7 +39,12 @@ static HardwareSerial& logSerial = Serial;
 #define LOG_SERIAL_HAS_TX_TIMEOUT 0
 #endif
 
-void logPrintf(const char* level, const char* origin, const char* format, ...);
+// The format attribute is what lets the compiler check a LOG_ call at all.
+// Without it not one call site in the tree is verified. It only bites where
+// ENABLE_SERIAL_LOG is defined, since the macros expand to nothing otherwise
+// and the arguments are never even parsed — which is why this build, which
+// defines no ENABLE_SERIAL_LOG, may be carrying call sites that do not compile.
+void logPrintf(const char* level, const char* origin, const char* format, ...) __attribute__((format(printf, 3, 4)));
 
 #ifdef ENABLE_SERIAL_LOG
 #if LOG_LEVEL >= 0

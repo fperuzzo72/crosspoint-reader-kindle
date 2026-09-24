@@ -179,7 +179,15 @@ struct DirectPixelWriter {
     const int sy = phyY - originY;
     if (static_cast<unsigned>(sy) >= static_cast<unsigned>(clipRows)) return;
 
-    const uint16_t byteIndex = static_cast<uint16_t>(sy * displayWidthBytes + (phyX >> 3));
+    // uint32_t, not uint16_t. The index is a byte offset into the whole frame,
+    // so it exceeds 65,535 on any panel past 524,288 pixels. This one is
+    // 600x800, which is 60,000 bytes and fits with 5,535 to spare — by luck,
+    // not by design. It wrapped on the 824x1648 HiBreak, where 169,744 bytes
+    // meant every row past 636 landed at a wrong offset, and since the stride
+    // does not divide 65,536 the wraps scattered rather than repeated. Only
+    // images come through this writer, so a page looked right except for its
+    // illustration. Found in the HiBreak port and upstream's bug, not a port's.
+    const uint32_t byteIndex = static_cast<uint32_t>(sy) * displayWidthBytes + static_cast<uint32_t>(phyX >> 3);
     const uint8_t bitMask = 1 << (7 - (phyX & 7));
 
     if (state) {

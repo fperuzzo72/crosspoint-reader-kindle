@@ -96,6 +96,10 @@ std::string filterLoadableCAs(const std::string& bundle) {
   kept.reserve(bundle.size());
   size_t accepted = 0;
   size_t rejected = 0;
+  size_t index = 0;
+  // Which ones, not just how many. The index is enough: the same bundle file is
+  // on the machine that built this, so naming the index names the certificate.
+  std::string rejectedList;
 
   size_t pos = 0;
   while (true) {
@@ -123,10 +127,19 @@ std::string filterLoadableCAs(const std::string& bundle) {
       ++accepted;
     } else {
       ++rejected;
+      if (rejectedList.size() < 200) {
+        char note[32];
+        std::snprintf(note, sizeof(note), "%zu(%d) ", index, rc);
+        rejectedList += note;
+      }
     }
+    ++index;
   }
 
   std::fprintf(stderr, "[kindle] CA bundle: %zu usable, %zu this build cannot parse\n", accepted, rejected);
+  if (rejected > 0) {
+    std::fprintf(stderr, "[kindle] rejected index(err): %s\n", rejectedList.c_str());
+  }
   return kept;
 }
 
