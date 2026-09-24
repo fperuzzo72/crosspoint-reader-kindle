@@ -71,7 +71,64 @@ struct WifiPowerSaveGuard {
 // the user can replace beats a binary they would have to wait for. Kept rather
 // than re-read because wolfSSL wants the whole PEM as one buffer and a reading
 // session may do many requests.
+#include <wolfssl/ssl.h>
+
 constexpr const char* KINDLE_CA_BUNDLE_PATH = "/crosspoint/cacert.pem";
+
+// Keep only the certificates this wolfSSL build can actually parse.
+//
+// wolfSSL_CTX_load_verify_buffer walks a multi-certificate PEM in order and
+// STOPS at the first one it cannot handle, and SecureClient does not look at
+// its return value. So one certificate the build has no algorithm for silently
+// discards every certificate after it in the file. A Mozilla bundle is 121
+// certificates of mixed RSA-2048, RSA-4096, P-256, P-384 and one P-521, in no
+// order this cares about, and the symptom is ASN_NO_SIGNER_E on a perfectly
+// ordinary site.
+//
+// So each one is offered on its own to a throwaway context and kept only if it
+// is accepted. Costs a parse per certificate, once per session, and turns a
+// silent truncation into a number in the log.
+std::string filterLoadableCAs(const std::string& bundle) {
+  static const char* const BEGIN = "-----BEGIN CERTIFICATE-----";
+  static const char* const END = "-----END CERTIFICATE-----";
+
+  std::string kept;
+  kept.reserve(bundle.size());
+  size_t accepted = 0;
+  size_t rejected = 0;
+
+  size_t pos = 0;
+  while (true) {
+    const size_t b = bundle.find(BEGIN, pos);
+    if (b == std::string::npos) break;
+    const size_t e = bundle.find(END, b);
+    if (e == std::string::npos) break;
+    const size_t end = e + std::strlen(END);
+    const std::string one = bundle.substr(b, end - b) + "\n";
+    pos = end;
+
+    WOLFSSL_CTX* probe = wolfSSL_CTX_new(wolfTLS_client_method());
+    if (probe == nullptr) {
+      // Cannot test; keep it rather than throw away a trust anchor over a
+      // failure that is ours.
+      kept += one;
+      ++accepted;
+      continue;
+    }
+    const int rc = wolfSSL_CTX_load_verify_buffer(probe, reinterpret_cast<const unsigned char*>(one.data()),
+                                                  static_cast<long>(one.size()), WOLFSSL_FILETYPE_PEM);
+    wolfSSL_CTX_free(probe);
+    if (rc == WOLFSSL_SUCCESS) {
+      kept += one;
+      ++accepted;
+    } else {
+      ++rejected;
+    }
+  }
+
+  std::fprintf(stderr, "[kindle] CA bundle: %zu usable, %zu this build cannot parse\n", accepted, rejected);
+  return kept;
+}
 
 const char* kindleRootCAs() {
   static std::string pem;
@@ -100,6 +157,10 @@ const char* kindleRootCAs() {
     return nullptr;
   }
   std::fprintf(stderr, "[kindle] CA bundle loaded: %zu bytes from %s\n", size, KINDLE_CA_BUNDLE_PATH);
+  pem = filterLoadableCAs(pem);
+  if (pem.empty()) {
+    return nullptr;
+  }
   return pem.c_str();
 }
 #endif
