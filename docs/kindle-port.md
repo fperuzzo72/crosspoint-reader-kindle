@@ -514,7 +514,11 @@ Done:
 - Grayscale: the renderer's two 1bpp planes composed into the 8bpp frame the
   EPDC wants. The ESP32's two-waveform sequence collapses to one here, because
   panel memory is just bytes.
-- Zero undefined references at link. 3.2 MB stripped.
+- Networking, end to end and confirmed on the device: the built-in web server
+  accepts multipart uploads so a browser can push a book over Wi-Fi, and OPDS
+  browses and downloads over HTTPS with certificates verified. See "Networking,
+  and the shape of its failures" below.
+- Zero undefined references at link. 3.5 MB stripped with TLS in, 3.2 without.
 - Host tests for the pure pieces: the 1bpp to 8bpp expansion, the gray plane
   composition, and String semantics.
 
@@ -558,16 +562,17 @@ Three lessons worth keeping, each of which cost real time:
 
 Not reached, and why:
 
-1. **TLS.** Unimplemented, and HTTPS is refused rather than downgraded, because
-   the tree sends preemptive HTTP Basic credentials. This is the single item
-   that most limits the port in practice.
-2. **Multipart upload**, which gates the whole built-in web server: one route
-   registers an upload handler and `begin()` refuses to start.
-3. **A sleep screen that stays on the glass.** Implemented, and covered over by
+1. **A sleep screen that stays on the glass.** Implemented, and covered over by
    the framework a second later; see "Power, and who owns the panel" below.
-4. **Broad runtime verification.** A great deal of this tree compiles and links
-   without ever having executed on the device. That is not the same as working,
-   and this document tries to be careful about which of the two it is claiming.
+2. **Joining a network from inside the reader.** The system owns the radio, so
+   the Kindle has to be put on Wi-Fi through its own settings first. What was
+   fixed is that the reader no longer offers a screen it cannot fill.
+3. **Broad runtime verification.** Less true than it was — reading, touch,
+   rotation, grayscale, fonts, battery, sleep, exit, wireless transfer and OPDS
+   over TLS have all now been watched working on the device — but a great deal
+   of this tree still compiles and links without ever having executed here. That
+   is not the same as working, and this document tries to be careful about which
+   of the two it claims.
 
 ## Power, and who owns the panel
 
@@ -665,3 +670,118 @@ If a press really does leave our content on the glass, the way to a sleep
 screen is the opposite of what is implemented: draw it and ask for nothing.
 E-ink holds the image at no cost, and the Kindle's own idle timer suspends the
 machine later by whatever path evidently does not overwrite us. Untested.
+
+## Networking, and the shape of its failures
+
+The reader serves files over Wi-Fi and browses OPDS catalogues over HTTPS. Both
+work on the device. Neither needed much new code, and both were held up for days
+by failures that named the wrong thing, which is the part worth writing down.
+
+### The web server
+
+Multipart upload came back from the HiBreak port, where an Android phone forced
+it: you cannot mount one in Finder the way you can a Kindle. The parser is pure
+POSIX and travelled without a line of change. The `begin()` that used to refuse
+to start whenever a route registered an upload handler is gone with it.
+
+Two defects stood between that and a working file manager, both in this port's
+own shim and neither in the upload work:
+
+- **Routes and handler objects need ONE registration order.** The shim kept
+  `on()` routes and `addHandler()` objects in two lists and consulted the
+  objects first. The Arduino WebServer keeps both in a single chain, and the
+  tree relies on it: `"/"` is registered near the top of setup and
+  `WebDAVHandler`, which claims GET for every uri and answers 405 for a
+  directory, is added at the bottom. The browser asked for `/` and got
+  "405 Method Not Allowed" instead of the file manager. Two lists is the obvious
+  shape, which is exactly why both ports wrote it.
+- **`CONTENT_LENGTH_UNKNOWN` is `SIZE_MAX`, and so was "nobody announced a
+  length".** One field cannot hold both and they need opposite answers:
+  announced-unknown means chunked, unannounced means the body is whatever
+  `send()` was handed. Conflated, every streamed endpoint went out as
+  `Content-Length: 0` and the browser read a complete, empty body. Chunked
+  rather than letting the body end at the closed socket, which `Connection:
+  close` would have made legal and was less work: framing is what separates a
+  complete body from a cut one, and this server hands out books. Checked by
+  building the bytes it emits and parsing them with a real HTTP client — a
+  stream missing its terminator raises `IncompleteRead`, while the same
+  truncated bytes without framing read back as a whole file.
+
+### The network picker that could not be filled
+
+Every network feature opened `WifiSelectionActivity`, which lists what
+`scanNetworks()` returns, which is zero on purpose: scanning would fight the
+framework for the same radio. So the list opened empty, the user cancelled the
+only thing on screen, and the caller went home. That was "File Transfer returns
+to the home menu", and it would equally have been OPDS, KOReader sync, font
+downloads, the clock and OTA.
+
+The fix belongs in the screen, not in the nine activities that open it. Already
+connected, it finishes successfully at once; not connected, it finishes
+cancelled, which every caller already knows how to report. Backported from the
+HiBreak port, which reached the same conclusion for the same reason.
+
+### TLS
+
+Not written here. `HttpDownloader` has had a wolfSSL branch behind
+`FREEINK_NET_WOLFSSL` all along, and the SDK's `SecureClient` sits on Arduino's
+`Client`, which this port's shim provides. TLS was a cross-build problem:
+`tools/kindle/build-wolfssl.sh` produces the library and `trylink.sh` picks it
+up by presence, so a tree without it still builds and refuses https as before.
+
+Certificates are verified, which is where this diverges from the ESP32 targets
+deliberately. They call `setInsecure()`, defensible where a CA bundle is real
+flash. It is not defensible here: these requests carry preemptive HTTP Basic
+credentials, so unverified TLS hands the password to whoever answers the
+connection — encrypted, and to the wrong party.
+
+Four things had to be right, and every one of them failed silently:
+
+- **`--with-max-rsa-bits=4096`.** Without it `sp_int.h` applies its own default,
+  commented as "Default to max 3072 for general RSA and DH", and an RSA-4096
+  signature fails as `ASN_SIG_CONFIRM_E` — which reads as a bad certificate. 59
+  of the 121 CAs in a current Mozilla bundle are RSA-4096.
+- **`--enable-altcertchains`.** Without it the chain a server PRESENTS must end
+  at a trusted root, and cross-signed chains do not: gutenberg.org's ends at AAA
+  Certificate Services, no longer in the bundle, while the trusted anchor sits
+  mid-chain. It fails as `ASN_NO_SIGNER_E`, which reads as "the root is missing"
+  while the root is loaded.
+- **The bundle must be loaded one certificate at a time.**
+  `wolfSSL_CTX_load_verify_buffer` walks a multi-certificate PEM in order and
+  stops at the first it cannot parse, and `SecureClient` does not check its
+  return, so one bad certificate silently discarded every one after it.
+- **`wolfssl/options.h` must be force-included.** Autotools hides every optional
+  feature behind it; `SecureClient.cpp` includes only `ssl.h`, because on the
+  ESP32 the equivalent arrives through `WOLFSSL_USER_SETTINGS`. The symptom was
+  `wolfSSL_UseSNI` undeclared while the library plainly contained it.
+
+And one finding worth more than the fix. Six of the 121 certificates were
+rejected as `RSA_KEY_SIZE_E` and `ECC_KEY_SIZE_E` on 2048-bit and P-384 keys.
+The bundle disproves that on its own — it holds 21 RSA-2048 certificates and
+only four fail — and what the six share is a **serial number of zero**, matching
+exactly, with no false positive or negative across 121. wolfSSL rejects those on
+purpose because RFC 5280 requires a positive serial, and returns `ASN_PARSE_E`;
+the size error is applied later and on top. **In that library the key-size error
+name is not evidence about key size.**
+
+Relaxed at the user's request, by patching that single line rather than defining
+`WOLFSSL_NO_ASN_STRICT`, which guards seventeen conformance checks that apply to
+every certificate a server presents. One rule for six anchors is a trade worth
+making; seventeen is not. The patch refuses to build if a later wolfSSL moves
+the line.
+
+### Four ways to keep a stale object
+
+Each of these produced a build that looked complete and was not, and each was
+found only by checking the binary rather than the exit code.
+
+| Changed | Missed because the rule watched |
+| --- | --- |
+| a source | nothing — this one worked |
+| a header | only sources |
+| a `-D` flag | only sources and headers |
+| an external library's headers | only this tree's headers |
+
+The one that cost most was the third: turning on `-DFREEINK_NET_WOLFSSL` changed
+no file, so every object was kept, the link reported zero undefined references,
+and the binary contained no TLS at all. `trylink.sh` now watches all four.
