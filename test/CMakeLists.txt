@@ -73,3 +73,16 @@ add_subdirectory(kindle_touch)
 
 add_subdirectory(kindle_crypto)
 add_subdirectory(multipart)
+
+# The progressive-JPEG guard needs JPEGDEC, which tools/kindle/fetch-deps.sh
+# downloads into build/kindle/thirdparty rather than the repo committing it.
+# Register it only when that source is present, so a fresh clone still
+# configures; skipping is announced rather than silent, because a guard nobody
+# notices is missing is how the bug it guards got in.
+set(JPEGDEC_DIR "${REPO_ROOT}/build/kindle/thirdparty/JPEGDEC/src")
+set(JPEGDEC_SRC "${JPEGDEC_DIR}/JPEGDEC.cpp")
+if(EXISTS "${JPEGDEC_SRC}")
+  add_subdirectory(jpeg_progressive)
+else()
+  message(STATUS "jpeg_progressive skipped: run tools/kindle/fetch-deps.sh first")
+endif()
