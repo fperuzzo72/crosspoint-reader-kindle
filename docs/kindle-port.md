@@ -785,3 +785,45 @@ found only by checking the binary rather than the exit code.
 The one that cost most was the third: turning on `-DFREEINK_NET_WOLFSSL` changed
 no file, so every object was kept, the link reported zero undefined references,
 and the binary contained no TLS at all. `trylink.sh` now watches all four.
+
+## JPEGDEC: os dois patches que o build do Kindle não aplicava
+
+O port compartilhou por um tempo um bug que já estava corrigido no repositório,
+mas fora do alcance deste build.
+
+`scripts/jpegdec_patches/` carrega dois patches contra o JPEGDEC upstream:
+
+* `0001-redirect-pmcu-on-mcu-skip.patch` — em `JPEGDecodeMCU_P`, `pMCU` é
+  calculado como `&pJPEG->sMCUs[iMCU & 0xffffff]`. Em MCU_SKIP o `iMCU` chega
+  negativo, e o mascaramento transforma isso num ponteiro cerca de 33 MB além
+  de `sMCUs`. A primeira escrita de coeficiente AC falha o store.
+* `0002-guard-dc-writes-on-mcu-skip.patch` — as duas escritas em `pMCU[0]`
+  passam a ser condicionadas a `iMCU >= 0`, senão o valor do DC de Y recém
+  decodificado é sobrescrito.
+
+Os dois só disparam quando `EIGHT_BIT_GRAYSCALE` decodifica um JPEG
+**progressivo de 3 componentes**: cada MCU de Y arrasta duas chamadas MCU_SKIP
+atrás de si, para Cb e Cr. É exatamente o que este leitor faz com as figuras de
+um livro ilustrado, porque o painel é cinza.
+
+Quem aplicava os patches era `scripts/patch_jpegdec.py`, e ele é um pre-build
+script do PlatformIO. O build do Kindle não passa pelo PlatformIO:
+`tools/kindle/fetch-deps.sh` clonava o pin upstream e usava como veio. O
+resultado é que o alvo com maior chance de encontrar o bug era o único que
+embarcava ele.
+
+`fetch-deps.sh` agora aplica os patches, com a mesma idempotência decidida pelo
+git que o script do PlatformIO usa: `--check --reverse` passa, já está
+aplicado; `--check` passa, aplica; nenhum dos dois, o build para, porque a
+árvore não é a esperada. O clone tem o guard de "já presente" e o patch não:
+são passos separados de propósito, senão uma árvore já clonada nunca receberia
+a correção.
+
+Para conferir no binário, sem confiar no script: em `JPEGDecodeMCU_P` o
+deslocamento do ponteiro vira condicional,
+
+    cmp   r1, #0
+    it    ge
+    addge r6, r6, r1, lsl #1
+
+e a escrita do DC ganha o mesmo teste logo adiante. `r1` é o `iMCU`.
