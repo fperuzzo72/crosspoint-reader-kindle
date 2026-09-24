@@ -80,7 +80,12 @@ void SettingsActivity::rebuildSettingsLists() {
   }
 
   // Append device-only ACTION items
-  if (!BoardConfig::hasTouch()) {
+  // !hasTouch() is the wrong question on this target and answers yes: the Kindle
+  // is a touch device, but BoardConfig::ACTIVE falls through to the X4 profile,
+  // which is NO_TOUCH, so the runtime query describes hardware this device does
+  // not have. That is how "Remap Front Buttons" reached a machine with no front
+  // buttons. The compile-time capability is the one that is true here.
+  if (!FREEINK_DEVICE_KINDLE && !BoardConfig::hasTouch()) {
     controlsSettings.insert(controlsSettings.begin(),
                             SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
   }
@@ -90,8 +95,14 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
   // OTA fetches this board's own release asset (see OtaUpdater); boards whose
   // asset isn't published yet just report no update available.
+#if !FREEINK_DEVICE_KINDLE
+  // Neither can do anything here. Over-the-air update fails every call on
+  // purpose on this target, and the SD firmware path writes a firmware image to
+  // a device whose firmware is not ours to write: CrossPoint is a process on a
+  // Kindle, not the Kindle's software.
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
+#endif
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts));
 #if FREEINK_DEVICE_KINDLE

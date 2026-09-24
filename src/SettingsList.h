@@ -299,9 +299,22 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                           {StrId::STR_MENU_STYLE_LIST, StrId::STR_MENU_STYLE_TOOLBAR}, "readerMenuStyle",
                           StrId::STR_CAT_READER),
         // --- Controls ---
+#if !FREEINK_DEVICE_KINDLE
+        // Every entry between here and the touch ones below describes a
+        // physical button. This device has exactly one, the power button, and
+        // it never reaches this process: it goes from the PMIC to powerd by a
+        // path userspace does not see, measured in /proc/bus/input/devices,
+        // which lists only the touchscreen. A row that cannot do anything is
+        // worse than no row.
+        //
+        // Guarded by device rather than by BoardConfig::hasFrontButtons() and
+        // friends, which would look like the natural test and would be wrong:
+        // BoardConfig::ACTIVE falls through to the X4 profile here, so those
+        // runtime queries answer about hardware this device does not have.
         SettingInfo::Enum(StrId::STR_SIDE_BTN_LAYOUT, &CrossPointSettings::sideButtonLayout,
                           {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV, StrId::STR_DISABLED}, "sideButtonLayout",
                           StrId::STR_CAT_CONTROLS),
+#endif
         SettingInfo::Enum(
             StrId::STR_TOUCH_READER_CONTROLS, &CrossPointSettings::touchReaderControls,
             {StrId::STR_STATE_OFF, StrId::STR_STATE_TAP, StrId::STR_STATE_SWIPE, StrId::STR_STATE_INVERTED_TAP},
@@ -311,6 +324,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         SettingInfo::Enum(StrId::STR_SHOW_READER_MENU, &CrossPointSettings::showReaderMenu,
                           {StrId::STR_STATE_OFF, StrId::STR_STATE_TAP, StrId::STR_STATE_SWIPE_UP}, "tapForReaderMenu",
                           StrId::STR_CAT_CONTROLS),
+#if !FREEINK_DEVICE_KINDLE
         SettingInfo::Toggle(StrId::STR_FRONT_BTN_FOLLOW_ORIENTATION, &CrossPointSettings::frontButtonFollowOrientation,
                             "frontButtonFollowOrientation", StrId::STR_CAT_CONTROLS),
         SettingInfo::Enum(StrId::STR_LONG_PRESS_BEHAVIOR, &CrossPointSettings::longPressButtonBehavior,
@@ -319,7 +333,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                           "longPressButtonBehavior", StrId::STR_CAT_CONTROLS),
         SettingInfo::Enum(StrId::STR_LONG_PRESS_MENU, &CrossPointSettings::longPressMenuFunction,
                           buildLongPressMenuValues(), "longPressMenuFunction", StrId::STR_CAT_CONTROLS),
-#if FREEINK_CAP_TOUCH
+#endif
+#if FREEINK_DEVICE_KINDLE
+        // Nothing: the power button belongs to powerd here, so every row that
+        // assigns it a meaning is describing a key this process never receives.
+#elif FREEINK_CAP_TOUCH
         SettingInfo::Enum(StrId::STR_SHORT_PWR_BTN, &CrossPointSettings::shortPwrBtn,
                           {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_PAGE_TURN, StrId::STR_FORCE_REFRESH,
                            StrId::STR_FOOTNOTES, StrId::STR_CONFIRM},
@@ -330,10 +348,12 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
             {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_PAGE_TURN, StrId::STR_FORCE_REFRESH, StrId::STR_FOOTNOTES},
             "shortPwrBtn", StrId::STR_CAT_CONTROLS),
 #endif
+#if !FREEINK_DEVICE_KINDLE
         SettingInfo::Toggle(StrId::STR_PWR_BTN_FOOTNOTE_BACK, &CrossPointSettings::pwrBtnFootnoteBack,
                             "pwrBtnFootnoteBack", StrId::STR_CAT_CONTROLS),
         SettingInfo::Toggle(StrId::STR_BACK_SHORT_TO_FILE_BROWSER, &CrossPointSettings::backShortToFileBrowser,
                             "backShortToFileBrowser", StrId::STR_CAT_CONTROLS),
+#endif
 
         // --- System ---
         SettingInfo::Value(
@@ -460,8 +480,22 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
     return v;
   }();
 
+  // Does THIS BUILD have a touchscreen? Not the same question as
+  // BoardConfig::hasTouch(), which reads ACTIVE.touch.controller, and on the
+  // Kindle ACTIVE falls through to the X4 profile — NO_TOUCH — because there is
+  // no Kindle profile to fall into. Asking the runtime query there inverted this
+  // whole screen: a touch-only device was shown the physical-button rows and had
+  // the touch ones removed.
+  //
+  // Not fixed by writing a Kindle BoardProfile, which would be the tidier answer
+  // but means filling a large positional aggregate of pins that mean nothing
+  // here, in a submodule, where a field in the wrong position fails silently.
+  // Not fixed by assigning ACTIVE.touch.controller either: the enum has no value
+  // for "the system owns it", so every choice is a lie about hardware.
+  const bool touchBuild = FREEINK_DEVICE_KINDLE || BoardConfig::hasTouch();
+
   std::vector<SettingInfo> v = baseList;
-  if (!BoardConfig::hasTouch()) {
+  if (!touchBuild) {
     // The toolbar reader menu is touch-first chrome: button boards keep the
     // classic list menu, so the style choice is hidden along with the touch
     // controls.
@@ -481,7 +515,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            [](const SettingInfo& s) { return s.nameId == StrId::STR_SHOW_READER_MENU; }),
             v.end());
   }
-  if (BoardConfig::hasTouch()) {
+  if (touchBuild) {
     v.erase(std::remove_if(v.begin(), v.end(),
                            [](const SettingInfo& s) {
                              return s.nameId == StrId::STR_FRONT_BTN_FOLLOW_ORIENTATION ||
