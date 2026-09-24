@@ -68,7 +68,18 @@ int clampPercent(int percent) {
   return percent;
 }
 
+#if FREEINK_DEVICE_KINDLE
+// Under the library rather than beside it, so finished books stay where the
+// rest of the collection is.
+//
+// Not "/ebooks" itself, which is what "put them in the ebooks folder" sounds
+// like and would make the feature do nothing: the books are already there, so
+// the move would be from a folder to itself. A subfolder keeps them together
+// and still takes them out of the main list, which is the whole point.
+constexpr char READ_FOLDER[] = "/ebooks/read";
+#else
 constexpr char READ_FOLDER[] = "/read";
+#endif
 
 bool isInReadFolder(const std::string& path) {
   constexpr size_t n = sizeof(READ_FOLDER) - 1;

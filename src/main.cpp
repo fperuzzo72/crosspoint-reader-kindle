@@ -946,7 +946,12 @@ void loop() {
   }
 #endif
 
-  const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
+  // Zero here, always: the Kindle has its own inactivity timer and runs it
+  // whatever this one does, so keeping both meant two clocks racing to do the
+  // same thing and a sleep screen the framework covers a second later. The
+  // manual path still exists — enterDeepSleep() is what the menu used to call —
+  // it simply is not driven by a second timer.
+  const unsigned long sleepTimeoutMs = FREEINK_DEVICE_KINDLE ? 0 : SETTINGS.getSleepTimeoutMs();
   if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
     enterDeepSleep(true);
