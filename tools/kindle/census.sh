@@ -48,6 +48,19 @@ cat > "$OUT/census-defines.h" <<'DEFS'
 #ifndef CROSSPOINT_VERSION
 #define CROSSPOINT_VERSION "kindle-dev"
 #endif
+// Without this every LOG_ macro in the tree expands to nothing, errors
+// included, and the binary carries no diagnostic at all. That is how this port
+// shipped a JPEGDEC crash that a single log line would have named: the pipeline
+// announced what it was about to decode and nobody could read it.
+//
+// Level 1 is ERR + INF. DBG stays off on purpose: it is per-page and per-glyph
+// in places, and the point is a log a person reads, not one that scrolls.
+#ifndef ENABLE_SERIAL_LOG
+#define ENABLE_SERIAL_LOG 1
+#endif
+#ifndef LOG_LEVEL
+#define LOG_LEVEL 1
+#endif
 DEFS
 INC="$INC -include $OUT/census-defines.h"
 : > "$OUT/census-errors.txt"

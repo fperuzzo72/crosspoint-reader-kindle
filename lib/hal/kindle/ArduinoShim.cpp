@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "KindleLog.h"
 #include "arduino-shim/HardwareSerial.h"
 #include "arduino-shim/Print.h"
 #include "arduino-shim/Stream.h"
@@ -92,8 +93,19 @@ size_t Print::printf(const char* fmt, ...) {
 HardwareSerial Serial;
 HardwareSerial Serial0;
 
-size_t HardwareSerial::write(const uint8_t c) { return fwrite(&c, 1, 1, stderr); }
-size_t HardwareSerial::write(const uint8_t* buffer, const size_t size) { return fwrite(buffer, 1, size, stderr); }
+// KindleLog owns stderr and caps how large it gets; asking here is what keeps
+// a runaway logger from filling the card, since this is the only path every
+// LOG_ macro in the tree goes through.
+size_t HardwareSerial::write(const uint8_t c) {
+  const size_t n = fwrite(&c, 1, 1, stderr);
+  KindleLog::rotateIfNeeded();
+  return n;
+}
+size_t HardwareSerial::write(const uint8_t* buffer, const size_t size) {
+  const size_t n = fwrite(buffer, 1, size, stderr);
+  KindleLog::rotateIfNeeded();
+  return n;
+}
 void HardwareSerial::flush() { fflush(stderr); }
 
 // ------------------------------------------------------------- SPI / Wire ---

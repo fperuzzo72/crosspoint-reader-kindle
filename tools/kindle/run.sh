@@ -10,6 +10,12 @@
 #
 # Everything is still captured. The log costs nothing and it is the only
 # window into a run once the device is unplugged.
+#
+# Two logs, with one job each. This one records how the run STARTED: kernel,
+# free space, checksum of the binary that actually ran, boot evidence. The
+# application log is /mnt/us/crosspoint.log, which the binary opens for itself
+# so it can cap its size; this file would grow without bound inside a long run,
+# and a reader runs for hours. See lib/hal/kindle/KindleLog.h.
 BASE=/mnt/us/crosspoint
 LOG=/mnt/us/crosspoint-run.log
 
@@ -29,6 +35,7 @@ LOG=/mnt/us/crosspoint-run.log
     # exactly the same byte count, and it has. A checksum ends the "did I run
     # the new one?" question that cost a round of testing.
     echo "cksum:  $( (cksum "$BASE/crosspoint" 2>/dev/null || md5sum "$BASE/crosspoint" 2>/dev/null) | head -1)"
+    echo "applog: /mnt/us/crosspoint.log (and .prev), written and rotated by the binary"
     echo
 
     # How this boot started. Written at launch, so it describes the boot BEFORE

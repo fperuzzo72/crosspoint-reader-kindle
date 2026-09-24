@@ -831,3 +831,46 @@ e a escrita do DC ganha o mesmo teste logo adiante. `r1` é o `iMCU`.
 Confirmado no aparelho em 24/09/2026: com os patches aplicados, o capítulo 2 de
 *Freaks, Geeks and Asperger Syndrome* abre com a figura renderizada. Antes, o
 programa morria ao entrar nele, que é o primeiro item do spine com imagem.
+
+## Log: ligado, e com teto
+
+Até aqui este build não definia `ENABLE_SERIAL_LOG`, então todo `LOG_ERR`,
+`LOG_INF` e `LOG_DBG` da árvore expandia para nada. Não era log desligado, era
+log inexistente: as strings nem chegavam no binário. O diagnóstico do port era
+um punhado de `fprintf(stderr, "[kindle] ...")` colocados à mão, cobrindo boot,
+resume e touch, e nada do pipeline de imagem.
+
+O custo disso ficou concreto no bug do JPEGDEC. O conversor anunciava
+exatamente o que ia fazer, e ninguém podia ler:
+
+    [JPG] Progressive JPEG detected - decoding DC coefficients only
+    [IMG] Cache stream started: img_11_0.pxc (500x450, band 130 rows)
+
+`tools/kindle/census.sh` agora gera `ENABLE_SERIAL_LOG` e `LOG_LEVEL 1` no
+header de defines forçados. Nível 1 é ERR mais INF. DBG fica fora de propósito:
+em alguns pontos ele é por página e por glifo, e o objetivo é um log que uma
+pessoa lê. Custo no binário: cerca de 36 KB.
+
+### Dois logs, um trabalho cada
+
+* `/mnt/us/crosspoint-run.log`, do `run.sh`: como a execução COMEÇOU. Kernel,
+  espaço livre, cksum do binário que rodou de fato, evidência de boot. Uma
+  geração para trás, trocada no lançamento.
+* `/mnt/us/crosspoint.log`, do binário: a execução em si. Também uma geração
+  para trás, em `.prev`.
+
+O segundo existe por causa da rotação, e a rotação existe porque a do `run.sh`
+não limita nada DENTRO de uma execução: ela troca o arquivo no lançamento, e um
+laço que loga a cada iteração enche o cartão enquanto o leitor fica horas
+aberto. `KindleLog::begin()` aponta o fd 2 para o arquivo e `rotateIfNeeded()`
+troca ao passar de 256 KB, então o par nunca passa de meio mega.
+
+Apontar o fd 2, em vez de abrir um segundo destino, é o que faz todo call site
+existente seguir junto sem ser tocado: os `LOG_` pelo `Serial` do shim, as
+linhas `[kindle]` pelo `fprintf`, e o handler de crash pelo `write(2)` no
+descritor cru. Um fault num arquivo e o que levou até ele em outro seria a
+pior forma possível de guardar isso.
+
+Se `/mnt/us` não estiver gravável, que é o caso com o aparelho plugado num
+computador, `begin()` desiste em silêncio e deixa o stderr como estava. A
+captura do `run.sh` continua pegando tudo.

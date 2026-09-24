@@ -17,15 +17,20 @@
 //    loop can leave the panel in a readable state instead of freezing whatever
 //    half-drawn frame was up.
 //
-//  - stdout and stderr are unbuffered. The scriptlet redirects them into a log
-//    on the card, and a crash with a full buffer loses exactly the lines that
-//    explain it.
+//  - stdout and stderr are unbuffered. A crash with a full buffer loses
+//    exactly the lines that explain it.
+//
+//  - stderr is pointed at a log this process owns and rotates. The scriptlet
+//    still captures whatever is written before that happens, and keeps its own
+//    record of how the run started; see KindleLog.h for why the application
+//    log is a separate file that stops growing.
 //
 //  - The working directory moves to /mnt/us, which is what the reader means by
 //    the root of its storage on this device.
 
 #include <HalDisplay.h>
 #include <HalSystem.h>
+#include <KindleLog.h>
 
 #include <signal.h>
 #include <ucontext.h>
@@ -99,6 +104,10 @@ void onCrash(const int sig, siginfo_t* const info, void* const context) {
 int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   std::setvbuf(stderr, nullptr, _IONBF, 0);
+
+  // Before anything can log, and before the signal handlers are installed: the
+  // crash handler writes to fd 2 directly, so it lands wherever this points it.
+  KindleLog::begin();
 
   std::signal(SIGPIPE, SIG_IGN);
   std::signal(SIGINT, onStop);
