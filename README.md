@@ -130,7 +130,8 @@ rejected, with no other candidate. wolfSSL rejects those deliberately, in
 non-conforming and it returns `ASN_PARSE_E`. The size error is applied later, on
 top, which is why the code points somewhere else entirely.
 
-That one check is relaxed, at the user's request, so all 121 load. It is
+That one check is relaxed, at the user's request, and the device confirms it:
+`CA bundle: 121 usable, 0 this build cannot parse`. It is
 relaxed by patching the single line in `build-wolfssl.sh`, not by defining
 `WOLFSSL_NO_ASN_STRICT`: that macro guards seventeen conformance checks and
 they apply to every certificate parsed, including the ones a server presents.
