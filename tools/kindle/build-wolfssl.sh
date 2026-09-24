@@ -36,6 +36,42 @@ if [ ! -d "$SRC" ]; then
 fi
 
 cd "$SRC"
+
+# Accept certificates whose serial number is zero, and ONLY that.
+#
+# wolfSSL rejects them on purpose: RFC 5280 requires a positive serial, so a CA
+# issuing 0 is non-conforming. Six of the 121 CAs in a current Mozilla bundle do
+# exactly that, among them Go Daddy Root G2 and both Starfield roots, and every
+# other TLS stack accepts them, so a catalogue chaining there fails only here.
+# The user asked for the check to be relaxed.
+#
+# WOLFSSL_NO_ASN_STRICT is the documented switch and is NOT what this does. That
+# macro guards seventeen conformance checks in asn.c, and they apply to every
+# certificate parsed, including the ones a server presents. This build verifies
+# certificates precisely so it does not have to trust whatever answers, so it
+# gives up one rule rather than seventeen.
+#
+# Patching the source rather than defining WOLFSSL_PYTHON, which guards this
+# same line and would also work: that macro says something untrue about what
+# this is, and a later version is free to hang more behaviour on it.
+SERIAL_GUARD='    #if !defined(WOLFSSL_NO_ASN_STRICT) \&\& !defined(WOLFSSL_PYTHON)'
+SERIAL_FILE=wolfcrypt/src/asn.c
+if grep -q 'CrossPoint: serial-zero' "$SERIAL_FILE"; then
+    echo "--- serial-zero check already relaxed"
+else
+    hits=$(grep -c "$SERIAL_GUARD" "$SERIAL_FILE" || true)
+    if [ "$hits" != "1" ]; then
+        # Loudly, because the alternative is a build that silently stops
+        # accepting six trust anchors again.
+        echo "ERROR: expected exactly one serial-zero guard in $SERIAL_FILE, found $hits."
+        echo "       wolfSSL $VER may have moved it; re-read asn.c before trusting this build."
+        exit 1
+    fi
+    sed -i "s|$SERIAL_GUARD|    #if 0 /* CrossPoint: serial-zero check relaxed, see build-wolfssl.sh */|" \
+        "$SERIAL_FILE"
+    echo "--- relaxed the serial-zero check (only that one)"
+fi
+
 if [ ! -f configure ]; then
     echo "--- generating configure"
     ./autogen.sh

@@ -130,13 +130,16 @@ rejected, with no other candidate. wolfSSL rejects those deliberately, in
 non-conforming and it returns `ASN_PARSE_E`. The size error is applied later, on
 top, which is why the code points somewhere else entirely.
 
-The switch for it, `WOLFSSL_NO_ASN_STRICT`, is not taken here. It relaxes
-seventeen RFC-conformance checks in `asn.c`, and those apply to every
-certificate parsed, including the ones a server presents. Trading that for six
-trust anchors is a poor deal in a build that verifies certificates precisely so
-it does not have to trust whatever answers. The cost is real and worth stating:
-Go Daddy Root G2, both Starfield roots and a Hellenic Academic pair are
-unusable, so a catalogue chaining to them fails.
+That one check is relaxed, at the user's request, so all 121 load. It is
+relaxed by patching the single line in `build-wolfssl.sh`, not by defining
+`WOLFSSL_NO_ASN_STRICT`: that macro guards seventeen conformance checks and
+they apply to every certificate parsed, including the ones a server presents.
+Giving up one rule to gain six trust anchors is a trade worth making; giving up
+seventeen is not, in a build that verifies certificates precisely so it does not
+have to trust whatever answers.
+
+The patch fails the build loudly if a later wolfSSL moves that line, because the
+alternative is quietly losing those six anchors again.
 
 ## What does not
 
